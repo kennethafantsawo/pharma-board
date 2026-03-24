@@ -195,8 +195,9 @@ export default function App() {
     } catch (error) {
       toast.dismiss(loadingToast);
       console.error("Login crash:", error);
-      setLoginError("Erreur critique lors de la connexion");
-      toast.error("Erreur critique lors de la connexion");
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setLoginError(`Erreur critique: ${errorMessage}`);
+      toast.error(`Erreur critique: ${errorMessage}`);
     }
   };
 

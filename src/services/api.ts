@@ -23,8 +23,16 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user, pass }),
       });
+      
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("Server error response:", text);
+        return { success: false, message: `Erreur serveur (${res.status})` };
+      }
+      
       return res.json();
     } catch (error) {
+      console.error("Fetch error:", error);
       return { success: false, message: "Erreur de connexion au serveur" };
     }
   },

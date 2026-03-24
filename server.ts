@@ -1,11 +1,13 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+
+console.log("Starting server.ts...");
 import { createClient } from "@supabase/supabase-js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
-import bcrypt from "bcryptjs";
+import bcryptjs from "bcryptjs";
 
 dotenv.config();
 
@@ -44,7 +46,7 @@ app.post("/api/auth/verify", async (req, res) => {
   if (!password) return res.status(400).json({ success: false, message: "Mot de passe requis" });
 
   const hash = target === 'saisie' ? HASHES.SAISIE : HASHES.PARAMETRES;
-  const isMatch = await bcrypt.compare(password, hash);
+  const isMatch = await bcryptjs.compare(password, hash);
   
   if (isMatch) {
     res.json({ success: true });
@@ -54,19 +56,33 @@ app.post("/api/auth/verify", async (req, res) => {
 });
 
 app.post("/api/auth/login", async (req, res) => {
-  const { user, pass } = req.body;
-  if (!user || !pass) return res.status(400).json({ success: false, message: "Identifiants requis" });
+  try {
+    const { user, pass } = req.body;
+    console.log(`Login attempt for user: ${user}`);
+    
+    if (!user || !pass) {
+      return res.status(400).json({ success: false, message: "Identifiants requis" });
+    }
 
-  let hash = "";
-  if (user === 'directrice') hash = HASHES.DIRECTRICE;
-  else if (user === 'assistant') hash = HASHES.ASSISTANT;
-  else return res.status(401).json({ success: false, message: "Utilisateur inconnu" });
+    let hash = "";
+    if (user === 'directrice') hash = HASHES.DIRECTRICE;
+    else if (user === 'assistant') hash = HASHES.ASSISTANT;
+    else {
+      console.log(`Unknown user: ${user}`);
+      return res.status(401).json({ success: false, message: "Utilisateur inconnu" });
+    }
 
-  const isMatch = await bcrypt.compare(pass, hash);
-  if (isMatch) {
-    res.json({ success: true });
-  } else {
-    res.status(401).json({ success: false, message: "Mot de passe incorrect" });
+    const isMatch = await bcryptjs.compare(pass, hash);
+    console.log(`Password match for ${user}: ${isMatch}`);
+    
+    if (isMatch) {
+      res.json({ success: true });
+    } else {
+      res.status(401).json({ success: false, message: "Mot de passe incorrect" });
+    }
+  } catch (error) {
+    console.error("Server login error:", error);
+    res.status(500).json({ success: false, message: "Erreur interne du serveur" });
   }
 });
 
@@ -126,23 +142,27 @@ app.post("/api/logs", async (req, res) => {
 });
 
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-  }
+  try {
+    if (process.env.NODE_ENV !== "production") {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), "dist");
+      app.use(express.static(distPath));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+    }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://0.0.0.0:${PORT}`);
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+  }
 }
 
 startServer();
