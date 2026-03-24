@@ -85,6 +85,8 @@ import { api } from '@/src/services/api';
 import { Toaster, toast } from 'sonner';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
+import { auth } from './lib/firebase';
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 
 type Period = 'JOUR' | 'SEMAINE' | 'QUINZAINE' | 'MOIS' | 'TRIMESTRE' | 'SEMESTRE' | 'ANNEE';
 
@@ -102,6 +104,8 @@ export default function App() {
   const [passwordError, setPasswordError] = useState('');
   const [selectedPeriod, setSelectedPeriod] = useState<Period>('MOIS');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [userRole, setUserRole] = useState<'directrice' | 'assistant' | null>(null);
   const [loginError, setLoginError] = useState('');
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [editAmount, setEditAmount] = useState<string>('');
@@ -110,24 +114,45 @@ export default function App() {
   const [saisieTypeFilter, setSaisieTypeFilter] = useState<string>('TOUS');
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [txs, ents, auditLogs] = await Promise.all([
-          api.getTransactions(),
-          api.getEntities(),
-          api.getLogs()
-        ]);
-        setTransactions(txs);
-        setEntities(ents);
-        setLogs(auditLogs);
-      } catch (error) {
-        toast.error("Erreur lors du chargement des données");
-      } finally {
-        setIsLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setIsLoggedIn(true);
+        const email = user.email || '';
+        if (email === 'directrice@pharmapro.com') {
+          setUserRole('directrice');
+        } else if (email === 'assistant@pharmapro.com') {
+          setUserRole('assistant');
+        }
+      } else {
+        setIsLoggedIn(false);
+        setUserRole(null);
       }
-    };
-    fetchData();
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      const fetchData = async () => {
+        try {
+          const [txs, ents, auditLogs] = await Promise.all([
+            api.getTransactions(),
+            api.getEntities(),
+            api.getLogs()
+          ]);
+          setTransactions(txs);
+          setEntities(ents);
+          setLogs(auditLogs);
+        } catch (error) {
+          toast.error("Erreur lors du chargement des données");
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      fetchData();
+    }
+  }, [isLoggedIn]);
 
   useEffect(() => {
     if (editingTransaction) {
@@ -181,30 +206,35 @@ export default function App() {
 
     const loadingToast = toast.loading('Connexion en cours...');
     try {
-      const result = await api.login(user, pass);
+      // Pour Firebase, on utilise un email fictif basé sur l'identifiant
+      const email = `${user.toLowerCase().trim()}@pharmapro.com`;
+      await signInWithEmailAndPassword(auth, email, pass);
+      
       toast.dismiss(loadingToast);
-      if (result.success) {
-        setIsLoggedIn(true);
-        setLoginError('');
-        addLog('CREATE', 'AUTH', user, `Connexion utilisateur: ${user}`);
-        toast.success(`Bienvenue, ${user}`);
-      } else {
-        setLoginError(result.message || 'Identifiants incorrects');
-        toast.error(result.message || 'Identifiants incorrects');
-      }
+      setIsLoggedIn(true);
+      setUserRole(user.toLowerCase().trim() as 'directrice' | 'assistant');
+      setLoginError('');
+      addLog('CREATE', 'AUTH', user, `Connexion utilisateur: ${user}`);
+      toast.success(`Bienvenue, ${user}`);
     } catch (error) {
       toast.dismiss(loadingToast);
       console.error("Login crash:", error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      setLoginError(`Erreur critique: ${errorMessage}`);
-      toast.error(`Erreur critique: ${errorMessage}`);
+      setLoginError('Identifiants ou mot de passe incorrects');
+      toast.error('Identifiants ou mot de passe incorrects');
     }
   };
 
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setActiveTab('accueil');
-    addLog('CREATE', 'AUTH', 'logout', 'Déconnexion utilisateur');
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setIsLoggedIn(false);
+      setUserRole(null);
+      setActiveTab('accueil');
+      addLog('CREATE', 'AUTH', 'logout', 'Déconnexion utilisateur');
+      toast.success('Déconnexion réussie');
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   // Audit Logging
@@ -778,6 +808,14 @@ export default function App() {
     }
   };
 
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-screen bg-[#080d1a] flex items-center justify-center p-4">
+        <div className="w-16 h-16 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-[#080d1a] flex items-center justify-center p-4">
@@ -856,33 +894,38 @@ export default function App() {
           <NavItem active={activeTab === 'dcssa'} onClick={() => { setActiveTab('dcssa'); setSubTab('DCSSA'); }} icon={<FileText size={18}/>} label="DCSSA" />
           <NavItem active={activeTab === 'implants'} onClick={() => { setActiveTab('implants'); setSubTab(''); }} icon={<Database size={18}/>} label="Implants" />
           <NavItem active={activeTab === 'assurances'} onClick={() => { setActiveTab('assurances'); setSubTab('LISTE'); }} icon={<ShieldCheck size={18}/>} label="Assurances" />
+          {userRole !== 'directrice' && (
+            <>
+              <div className="h-px bg-white/5 my-4 mx-2" />
+              <NavItem 
+                active={activeTab === 'saisie'} 
+                onClick={() => { 
+                  if (!isSaisieUnlocked) {
+                    setPasswordModal({ open: true, target: 'saisie', onUnlock: () => { setIsSaisieUnlocked(true); setActiveTab('saisie'); } });
+                  } else {
+                    setActiveTab('saisie'); 
+                  }
+                  setSubTab(''); 
+                }} 
+                icon={<PlusCircle size={18}/>} 
+                label="Mise à jour" 
+              />
+              <NavItem 
+                active={activeTab === 'parametres'} 
+                onClick={() => { 
+                  if (!isParametresUnlocked) {
+                    setPasswordModal({ open: true, target: 'parametres', onUnlock: () => { setIsParametresUnlocked(true); setActiveTab('parametres'); } });
+                  } else {
+                    setActiveTab('parametres'); 
+                  }
+                  setSubTab(''); 
+                }} 
+                icon={<Settings size={18}/>} 
+                label="Paramètres" 
+              />
+            </>
+          )}
           <div className="h-px bg-white/5 my-4 mx-2" />
-          <NavItem 
-            active={activeTab === 'saisie'} 
-            onClick={() => { 
-              if (!isSaisieUnlocked) {
-                setPasswordModal({ open: true, target: 'saisie', onUnlock: () => { setIsSaisieUnlocked(true); setActiveTab('saisie'); } });
-              } else {
-                setActiveTab('saisie'); 
-              }
-              setSubTab(''); 
-            }} 
-            icon={<PlusCircle size={18}/>} 
-            label="Mise à jour" 
-          />
-          <NavItem 
-            active={activeTab === 'parametres'} 
-            onClick={() => { 
-              if (!isParametresUnlocked) {
-                setPasswordModal({ open: true, target: 'parametres', onUnlock: () => { setIsParametresUnlocked(true); setActiveTab('parametres'); } });
-              } else {
-                setActiveTab('parametres'); 
-              }
-              setSubTab(''); 
-            }} 
-            icon={<Settings size={18}/>} 
-            label="Paramètres" 
-          />
           <NavItem active={activeTab === 'logs'} onClick={() => { setActiveTab('logs'); setSubTab(''); }} icon={<History size={18}/>} label="Journal d'audit" />
         </nav>
 
@@ -1358,7 +1401,9 @@ export default function App() {
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Statut</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                        {userRole !== 'directrice' && (
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
@@ -1375,14 +1420,16 @@ export default function App() {
                               {t.status}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-right">
-                            <button 
-                              onClick={() => setEditingTransaction(t)}
-                              className="p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all"
-                            >
-                              <Edit2 size={16} />
-                            </button>
-                          </td>
+                          {userRole !== 'directrice' && (
+                            <td className="px-6 py-4 text-right">
+                              <button 
+                                onClick={() => setEditingTransaction(t)}
+                                className="p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all"
+                              >
+                                <Edit2 size={16} />
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -1734,7 +1781,9 @@ export default function App() {
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Type</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Action</th>
+                          {userRole !== 'directrice' && (
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Action</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
@@ -1752,11 +1801,13 @@ export default function App() {
                               <span className="text-xs font-medium text-white">{t.type}</span>
                             </td>
                             <td className="px-6 py-4 text-xs font-mono font-bold text-white">{formatCurrency(t.amount)}</td>
-                            <td className="px-6 py-4">
-                              <button onClick={() => handleDeleteTransaction(t.id)} className="text-slate-500 hover:text-red-500 transition-colors">
-                                <Trash2 size={14} />
-                              </button>
-                            </td>
+                            {userRole !== 'directrice' && (
+                              <td className="px-6 py-4">
+                                <button onClick={() => handleDeleteTransaction(t.id)} className="text-slate-500 hover:text-red-500 transition-colors">
+                                  <Trash2 size={14} />
+                                </button>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>

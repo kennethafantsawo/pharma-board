@@ -1,0 +1,167 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: user UID
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - role: string (required, 'admin' or 'user')
+    //
+    // Collection: entities
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required)
+    //   - type: string (required, 'FOURNISSEUR', 'ASSURANCE', 'PARTENAIRE')
+    //   - status: string (required, 'ACTIF', 'INACTIF')
+    //   - phone: string (optional)
+    //   - email: string (optional)
+    //   - address: string (optional)
+    //
+    // Collection: transactions
+    // Document ID: auto-generated
+    // Fields:
+    //   - date: string (required, ISO 8601)
+    //   - type: string (required)
+    //   - amount: number (required)
+    //   - category: string (required)
+    //   - description: string (required)
+    //   - entityId: string (optional)
+    //   - status: string (optional)
+    //   - reason: string (optional)
+    //   - dossiers: number (optional)
+    //   - beneficiaires: number (optional)
+    //
+    // Collection: audit_logs
+    // Document ID: auto-generated
+    // Fields:
+    //   - timestamp: string (required, ISO 8601)
+    //   - action: string (required)
+    //   - targetType: string (required)
+    //   - targetId: string (required)
+    //   - details: string (required)
+    //   - previousData: map (optional)
+    //   - newData: map (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() &&
+        (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+          (request.auth.token.email == "kennethafantsawo@gmail.com" && request.auth.token.email_verified == true) ||
+          request.auth.token.email == "assistant@pharmapro.com"
+        );
+    }
+    
+    function isViewer() {
+      return isAuthenticated() && request.auth.token.email == "directrice@pharmapro.com";
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+    
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+    
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'email', 'role']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             data.email is string && isValidEmail(data.email) && data.email.size() < 100 &&
+             data.role in ['admin', 'user'];
+    }
+    
+    function isValidEntity(data) {
+      return hasRequiredFields(['name', 'type', 'status']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.type in ['FOURNISSEUR', 'ASSURANCE', 'PARTENAIRE'] &&
+             data.status in ['ACTIF', 'INACTIF'] &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() < 50)) &&
+             (!('email' in data) || (data.email is string && data.email.size() < 100)) &&
+             (!('address' in data) || (data.address is string && data.address.size() < 500));
+    }
+    
+    function isValidTransaction(data) {
+      return hasRequiredFields(['date', 'type', 'amount', 'category', 'description']) &&
+             isValidDateString(data.date) &&
+             data.type is string && data.type.size() > 0 && data.type.size() < 50 &&
+             data.amount is number &&
+             data.category is string && data.category.size() > 0 && data.category.size() < 100 &&
+             data.description is string && data.description.size() < 1000 &&
+             (!('entityId' in data) || (data.entityId is string && data.entityId.size() < 100)) &&
+             (!('status' in data) || (data.status is string && data.status.size() < 50)) &&
+             (!('reason' in data) || (data.reason is string && data.reason.size() < 500)) &&
+             (!('dossiers' in data) || data.dossiers is number) &&
+             (!('beneficiaires' in data) || data.beneficiaires is number);
+    }
+    
+    function isValidAuditLog(data) {
+      return hasRequiredFields(['timestamp', 'action', 'targetType', 'targetId', 'details']) &&
+             isValidDateString(data.timestamp) &&
+             data.action is string && data.action.size() > 0 && data.action.size() < 50 &&
+             data.targetType is string && data.targetType.size() > 0 && data.targetType.size() < 50 &&
+             data.targetId is string && data.targetId.size() > 0 && data.targetId.size() < 100 &&
+             data.details is string && data.details.size() < 2000 &&
+             (!('previousData' in data) || data.previousData is map) &&
+             (!('newData' in data) || data.newData is map);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAdmin() || isViewer() || isOwner(userId);
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    ((isOwner(userId) && request.resource.data.role == 'user') || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    ((isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /entities/{entityId} {
+      allow read: if isAdmin() || isViewer();
+      allow create: if isAdmin() && isValidEntity(request.resource.data);
+      allow update: if isAdmin() && isValidEntity(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isAdmin() || isViewer();
+      allow create: if isAdmin() && isValidTransaction(request.resource.data);
+      allow update: if isAdmin() && isValidTransaction(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /audit_logs/{logId} {
+      allow read: if isAdmin() || isViewer();
+      allow create: if isAdmin() && isValidAuditLog(request.resource.data);
+      allow update: if false; // Logs should be immutable
+      allow delete: if false; // Logs should not be deleted
+    }
+  }
+}
