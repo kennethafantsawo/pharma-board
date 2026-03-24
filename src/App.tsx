@@ -498,15 +498,14 @@ export default function App() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       const bstr = evt.target?.result;
       const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
       const data = XLSX.utils.sheet_to_json(ws) as any[];
 
-      const newTransactions: Transaction[] = data.map((row, idx) => ({
-        id: `import-${Date.now()}-${idx}`,
+      const newTransactions: Partial<Transaction>[] = data.map((row, idx) => ({
         date: row.Date instanceof Date ? row.Date : new Date(row.Date),
         type: row.Type as TransactionType,
         amount: Number(row.Montant) || 0,
@@ -519,9 +518,14 @@ export default function App() {
         beneficiaires: row.Beneficiaires ? Number(row.Beneficiaires) : undefined
       }));
 
-      setTransactions(prev => [...prev, ...newTransactions]);
-      addLog('IMPORT', 'TRANSACTION', 'multiple', `${newTransactions.length} transactions importées via Excel`);
-      toast.success(`${newTransactions.length} transactions importées avec succès`);
+      try {
+        const savedTxs = await api.createTransactions(newTransactions);
+        setTransactions(prev => [...savedTxs, ...prev]);
+        addLog('IMPORT', 'TRANSACTION', 'multiple', `${savedTxs.length} transactions importées via Excel`);
+        toast.success(`${savedTxs.length} transactions importées avec succès`);
+      } catch (err) {
+        toast.error("Erreur lors de l'importation");
+      }
     };
     reader.readAsBinaryString(file);
   };
@@ -753,8 +757,7 @@ export default function App() {
         addLog('UPDATE', 'ENTITY', updated.id, `Modification ${type.toLowerCase()} ${name}`, editingEntity, updated);
         toast.success('Partenaire mis à jour');
       } else {
-        const newEntity: Entity = {
-          id: Math.random().toString(36).substr(2, 9),
+        const newEntity: Partial<Entity> = {
           name,
           type,
           phone,

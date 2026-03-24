@@ -1,22 +1,8 @@
 import { Transaction, Entity, AuditLog } from '../lib/data';
+import { supabase } from '../lib/supabase';
 
-// Helper to simulate network delay
+// Helper to simulate network delay for auth
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Helper to get data from localStorage
-const getLocalData = <T>(key: string, defaultValue: T[]): T[] => {
-  try {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : defaultValue;
-  } catch (e) {
-    return defaultValue;
-  }
-};
-
-// Helper to save data to localStorage
-const setLocalData = (key: string, data: any) => {
-  localStorage.setItem(key, JSON.stringify(data));
-};
 
 export const api = {
   async verifyPassword(password: string, target: 'saisie' | 'parametres'): Promise<{ success: boolean; message?: string }> {
@@ -42,84 +28,121 @@ export const api = {
   },
 
   async getTransactions(): Promise<Transaction[]> {
-    await delay(200);
-    const data = getLocalData<any>('pharmacy_transactions', []);
-    return data.map(t => ({ ...t, date: new Date(t.date) }));
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .order('date', { ascending: false });
+      
+    if (error) {
+      console.error("Error fetching transactions:", error);
+      return [];
+    }
+    
+    return data.map((t: any) => ({ ...t, date: new Date(t.date) }));
   },
 
   async createTransaction(transaction: Partial<Transaction>): Promise<Transaction> {
-    await delay(300);
-    const transactions = await this.getTransactions();
-    const newTx = { 
-      ...transaction, 
-      id: crypto.randomUUID(),
-      date: transaction.date || new Date()
-    } as Transaction;
-    
-    transactions.unshift(newTx);
-    setLocalData('pharmacy_transactions', transactions);
-    return newTx;
+    const { data, error } = await supabase
+      .from('transactions')
+      .insert([transaction])
+      .select()
+      .single();
+      
+    if (error) throw new Error(error.message);
+    return { ...data, date: new Date(data.date) };
+  },
+
+  async createTransactions(transactions: Partial<Transaction>[]): Promise<Transaction[]> {
+    const { data, error } = await supabase
+      .from('transactions')
+      .insert(transactions)
+      .select();
+      
+    if (error) throw new Error(error.message);
+    return data.map((t: any) => ({ ...t, date: new Date(t.date) }));
   },
 
   async updateTransaction(id: string, updates: Partial<Transaction>): Promise<Transaction> {
-    await delay(300);
-    const transactions = await this.getTransactions();
-    const index = transactions.findIndex(t => t.id === id);
-    if (index === -1) throw new Error("Transaction not found");
-    
-    transactions[index] = { ...transactions[index], ...updates };
-    setLocalData('pharmacy_transactions', transactions);
-    return transactions[index];
+    const { data, error } = await supabase
+      .from('transactions')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+      
+    if (error) throw new Error(error.message);
+    return { ...data, date: new Date(data.date) };
   },
 
   async deleteTransaction(id: string): Promise<void> {
-    await delay(300);
-    const transactions = await this.getTransactions();
-    const filtered = transactions.filter(t => t.id !== id);
-    setLocalData('pharmacy_transactions', filtered);
+    const { error } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('id', id);
+      
+    if (error) throw new Error(error.message);
   },
 
   async getEntities(): Promise<Entity[]> {
-    await delay(200);
-    return getLocalData<Entity>('pharmacy_entities', []);
+    const { data, error } = await supabase
+      .from('entities')
+      .select('*')
+      .order('name', { ascending: true });
+      
+    if (error) {
+      console.error("Error fetching entities:", error);
+      return [];
+    }
+    
+    return data as Entity[];
   },
 
   async saveEntity(entity: Partial<Entity>): Promise<Entity> {
-    await delay(300);
-    const entities = await this.getEntities();
-    
     if (entity.id) {
-      const index = entities.findIndex(e => e.id === entity.id);
-      if (index >= 0) {
-        entities[index] = { ...entities[index], ...entity } as Entity;
-        setLocalData('pharmacy_entities', entities);
-        return entities[index];
-      }
+      const { data, error } = await supabase
+        .from('entities')
+        .update(entity)
+        .eq('id', entity.id)
+        .select()
+        .single();
+        
+      if (error) throw new Error(error.message);
+      return data as Entity;
+    } else {
+      const { data, error } = await supabase
+        .from('entities')
+        .insert([entity])
+        .select()
+        .single();
+        
+      if (error) throw new Error(error.message);
+      return data as Entity;
     }
-    
-    const newEntity = { ...entity, id: crypto.randomUUID() } as Entity;
-    entities.push(newEntity);
-    setLocalData('pharmacy_entities', entities);
-    return newEntity;
   },
 
   async getLogs(): Promise<AuditLog[]> {
-    await delay(200);
-    const data = getLocalData<any>('pharmacy_logs', []);
-    return data.map(l => ({ ...l, timestamp: new Date(l.timestamp) }));
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .select('*')
+      .order('timestamp', { ascending: false })
+      .limit(100);
+      
+    if (error) {
+      console.error("Error fetching logs:", error);
+      return [];
+    }
+    
+    return data.map((l: any) => ({ ...l, timestamp: new Date(l.timestamp) }));
   },
 
   async addLog(log: Partial<AuditLog>): Promise<AuditLog> {
-    const logs = await this.getLogs();
-    const newLog = { 
-      ...log, 
-      id: crypto.randomUUID(),
-      timestamp: new Date()
-    } as AuditLog;
-    
-    logs.unshift(newLog);
-    // Keep only last 100 logs to prevent localStorage overflow
-    setLocalData('pharmacy_logs', logs.slice(0, 100));
-    return newLog;
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .insert([log])
+      .select()
+      .single();
+      
+    if (error) throw new Error(error.message);
+    return { ...data, timestamp: new Date(data.timestamp) };
   },
 };
