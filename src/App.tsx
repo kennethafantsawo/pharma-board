@@ -179,13 +179,24 @@ export default function App() {
     const user = formData.get('user') as string;
     const pass = formData.get('pass') as string;
 
-    const result = await api.login(user, pass);
-    if (result.success) {
-      setIsLoggedIn(true);
-      setLoginError('');
-      addLog('CREATE', 'AUTH', user, `Connexion utilisateur: ${user}`);
-    } else {
-      setLoginError(result.message || 'Identifiants incorrects');
+    const loadingToast = toast.loading('Connexion en cours...');
+    try {
+      const result = await api.login(user, pass);
+      toast.dismiss(loadingToast);
+      if (result.success) {
+        setIsLoggedIn(true);
+        setLoginError('');
+        addLog('CREATE', 'AUTH', user, `Connexion utilisateur: ${user}`);
+        toast.success(`Bienvenue, ${user}`);
+      } else {
+        setLoginError(result.message || 'Identifiants incorrects');
+        toast.error(result.message || 'Identifiants incorrects');
+      }
+    } catch (error) {
+      toast.dismiss(loadingToast);
+      console.error("Login crash:", error);
+      setLoginError("Erreur critique lors de la connexion");
+      toast.error("Erreur critique lors de la connexion");
     }
   };
 

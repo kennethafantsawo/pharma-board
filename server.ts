@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
+import bcrypt from "bcryptjs";
 
 dotenv.config();
 
@@ -17,6 +18,10 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 app.use(cors());
 app.use(express.json());
 
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
 // Supabase Setup
 const supabaseUrl = process.env.SUPABASE_URL || "";
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
@@ -24,8 +29,6 @@ if (!supabaseUrl || !supabaseKey) {
   console.error("Missing SUPABASE_URL or SUPABASE_ANON_KEY/SUPABASE_SERVICE_ROLE_KEY");
 }
 const supabase = createClient(supabaseUrl, supabaseKey);
-
-import bcrypt from "bcryptjs";
 
 // Hashed passwords (generated for 'password2026', 'Pharma2026', 'Docteur2026', 'Admin2026')
 const HASHES = {
