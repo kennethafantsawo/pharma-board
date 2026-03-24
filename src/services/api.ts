@@ -1,11 +1,11 @@
 import { Transaction, Entity, AuditLog } from '../lib/data';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, limit, writeBatch } from 'firebase/firestore';
 
 // Helper to simulate network delay for auth
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-enum OperationType {
+export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
   DELETE = 'delete',
@@ -18,11 +18,37 @@ interface FirestoreErrorInfo {
   error: string;
   operationType: OperationType;
   path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
 }
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
     operationType,
     path
   };
@@ -33,7 +59,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 function cleanPayload<T extends Record<string, any>>(payload: T): T {
   const cleaned = { ...payload };
   Object.keys(cleaned).forEach(key => {
-    if (cleaned[key] === undefined) {
+    if (cleaned[key] === undefined || cleaned[key] === null) {
       delete cleaned[key];
     }
   });
@@ -168,7 +194,10 @@ export const api = {
 
   async addLog(log: Partial<AuditLog>): Promise<AuditLog> {
     try {
-      const payload = cleanPayload({ ...log });
+      const payload = cleanPayload({ 
+        timestamp: new Date(),
+        ...log 
+      });
       if (payload.timestamp instanceof Date) {
         (payload as any).timestamp = payload.timestamp.toISOString();
       }

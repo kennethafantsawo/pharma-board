@@ -61,10 +61,10 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() &&
         (
+          request.auth.token.email == "kennethafantsawo@gmail.com" ||
+          request.auth.token.email == "assistant@pharmapro.com" ||
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
-          (request.auth.token.email == "kennethafantsawo@gmail.com" && request.auth.token.email_verified == true) ||
-          request.auth.token.email == "assistant@pharmapro.com"
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
         );
     }
     
@@ -85,24 +85,21 @@ service cloud.firestore {
     }
     
     function isValidDateString(dateStr) {
-      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z?$");
     }
     
     function isValidUser(data) {
       return hasRequiredFields(['uid', 'email', 'role']) &&
-             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
-             data.email is string && isValidEmail(data.email) && data.email.size() < 100 &&
+             data.uid is string &&
+             data.email is string &&
              data.role in ['admin', 'user'];
     }
     
     function isValidEntity(data) {
       return hasRequiredFields(['name', 'type', 'status']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.name is string &&
              data.type in ['FOURNISSEUR', 'ASSURANCE', 'PARTENAIRE'] &&
-             data.status in ['ACTIF', 'INACTIF'] &&
-             (!('phone' in data) || (data.phone is string && data.phone.size() < 50)) &&
-             (!('email' in data) || (data.email is string && data.email.size() < 100)) &&
-             (!('address' in data) || (data.address is string && data.address.size() < 500));
+             data.status in ['ACTIF', 'INACTIF'];
     }
     
     function isValidTransaction(data) {

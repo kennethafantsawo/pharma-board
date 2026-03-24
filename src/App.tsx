@@ -81,7 +81,7 @@ import XLSX from 'xlsx-js-style';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn, formatCurrency } from '@/src/lib/utils';
 import { Transaction, Entity, AuditLog, TransactionType, EntityType } from '@/src/lib/data';
-import { api } from '@/src/services/api';
+import { api, OperationType } from '@/src/services/api';
 import { Toaster, toast } from 'sonner';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
@@ -120,7 +120,7 @@ export default function App() {
         const email = user.email || '';
         if (email === 'directrice@pharmapro.com') {
           setUserRole('directrice');
-        } else if (email === 'assistant@pharmapro.com') {
+        } else if (email === 'assistant@pharmapro.com' || email === 'kennethafantsawo@gmail.com') {
           setUserRole('assistant');
         }
       } else {
@@ -554,7 +554,21 @@ export default function App() {
         addLog('IMPORT', 'TRANSACTION', 'multiple', `${savedTxs.length} transactions importées via Excel`);
         toast.success(`${savedTxs.length} transactions importées avec succès`);
       } catch (err) {
-        toast.error("Erreur lors de l'importation");
+        console.error("Erreur d'import:", err);
+        let message = "Erreur lors de l'importation";
+        if (err instanceof Error) {
+          try {
+            const info = JSON.parse(err.message);
+            if (info.error.includes('insufficient permissions')) {
+              message = "Permissions insuffisantes pour importer des données.";
+            } else {
+              message = `Erreur: ${info.error}`;
+            }
+          } catch {
+            message = err.message;
+          }
+        }
+        toast.error(message);
       }
     };
     reader.readAsBinaryString(file);
@@ -804,7 +818,20 @@ export default function App() {
       (e.target as HTMLFormElement).reset();
     } catch (error) {
       console.error("Erreur détaillée lors de l'enregistrement du partenaire:", error);
-      toast.error("Erreur lors de l'enregistrement: " + (error instanceof Error ? error.message : String(error)));
+      let message = "Erreur lors de l'enregistrement";
+      if (error instanceof Error) {
+        try {
+          const info = JSON.parse(error.message);
+          if (info.error.includes('insufficient permissions')) {
+            message = "Permissions insuffisantes pour cette action.";
+          } else {
+            message = `Erreur: ${info.error}`;
+          }
+        } catch {
+          message = error.message;
+        }
+      }
+      toast.error(message);
     }
   };
 
@@ -1682,7 +1709,20 @@ export default function App() {
                       (e.target as HTMLFormElement).reset();
                     } catch (error) {
                       console.error("Erreur détaillée lors de l'enregistrement:", error);
-                      toast.error("Erreur lors de l'enregistrement: " + (error instanceof Error ? error.message : String(error)));
+                      let message = "Erreur lors de l'enregistrement";
+                      if (error instanceof Error) {
+                        try {
+                          const info = JSON.parse(error.message);
+                          if (info.error.includes('insufficient permissions')) {
+                            message = "Permissions insuffisantes pour cette action.";
+                          } else {
+                            message = `Erreur: ${info.error}`;
+                          }
+                        } catch {
+                          message = error.message;
+                        }
+                      }
+                      toast.error(message);
                     }
                   }}>
                     <div>
