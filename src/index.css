@@ -8,7 +8,10 @@
 
 @layer base {
   body {
-    @apply bg-[#080d1a] text-slate-200 antialiased;
+    @apply bg-slate-50 text-slate-900 antialiased transition-colors duration-300;
+  }
+  .dark body {
+    @apply bg-[#080d1a] text-slate-200;
   }
 }
 

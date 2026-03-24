@@ -10,6 +10,7 @@ import {
   Users, 
   Package, 
   ShieldCheck, 
+  Activity,
   History, 
   PlusCircle, 
   Settings, 
@@ -36,7 +37,9 @@ import {
   ChevronDown,
   Printer,
   Database,
-  Upload
+  Upload,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -93,6 +96,22 @@ type Period = 'JOUR' | 'SEMAINE' | 'QUINZAINE' | 'MOIS' | 'TRIMESTRE' | 'SEMESTR
 export default function App() {
   const [activeTab, setActiveTab] = useState('accueil');
   const [subTab, setSubTab] = useState<string>('');
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    return saved ? saved === 'dark' : true;
+  });
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [darkMode]);
+
+  const [saisieSection, setSaisieSection] = useState<'VENTES' | 'FOURNISSEURS' | 'CONSOMMATIONS' | 'REJETS'>('VENTES');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -837,7 +856,7 @@ export default function App() {
 
   if (!isAuthReady) {
     return (
-      <div className="min-h-screen bg-[#080d1a] flex items-center justify-center p-4">
+      <div className="min-h-screen bg-slate-50 dark:bg-[#080d1a] flex items-center justify-center p-4 transition-colors duration-300">
         <div className="w-16 h-16 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
@@ -845,7 +864,7 @@ export default function App() {
 
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen bg-[#080d1a] flex items-center justify-center p-4">
+      <div className="min-h-screen bg-slate-50 dark:bg-[#080d1a] flex items-center justify-center p-4 transition-colors duration-300">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-500/10 blur-[120px] rounded-full" />
           <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 blur-[120px] rounded-full" />
@@ -854,14 +873,14 @@ export default function App() {
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md bg-[#0e1629] border border-white/10 rounded-2xl p-8 shadow-2xl relative z-10"
+          className="w-full max-w-md bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/10 rounded-2xl p-8 shadow-2xl relative z-10 transition-colors duration-300"
         >
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-emerald-500/30">
+            <div className="w-16 h-16 bg-emerald-500/10 dark:bg-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-emerald-500/20 dark:border-emerald-500/30">
               <ShieldCheck className="w-8 h-8 text-emerald-500" />
             </div>
-            <h1 className="text-2xl font-bold text-white mb-2">Pharmacie de l'Aéroport</h1>
-            <p className="text-slate-400 text-sm">Dashboard de Gestion Interne</p>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Pharmacie de l'Aéroport</h1>
+            <p className="text-slate-500 dark:text-slate-400 text-sm">Dashboard de Gestion Interne</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6">
@@ -871,7 +890,7 @@ export default function App() {
                 name="user"
                 type="text" 
                 required
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-colors duration-300"
                 placeholder="Identifiant"
               />
             </div>
@@ -881,7 +900,7 @@ export default function App() {
                 name="pass"
                 type="password" 
                 required
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-colors duration-300"
                 placeholder="••••••••"
               />
             </div>
@@ -899,19 +918,19 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#080d1a] text-slate-200 flex">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#080d1a] text-slate-600 dark:text-slate-200 flex transition-colors duration-300">
       <Toaster position="top-right" richColors />
       
       {/* Sidebar */}
-      <aside className="w-64 border-r border-white/5 bg-[#0e1629] flex flex-col sticky top-0 h-screen z-50">
-        <div className="p-6 border-b border-white/5">
+      <aside className="w-64 border-r border-slate-200 dark:border-white/5 bg-white dark:bg-[#0e1629] flex flex-col sticky top-0 h-screen z-50 transition-colors duration-300">
+        <div className="p-6 border-b border-slate-200 dark:border-white/5">
           <div className="flex items-center gap-3 mb-1">
             <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-lg">✚</span>
             </div>
-            <span className="font-bold text-white tracking-tight">PHARMA PRO</span>
+            <span className="font-bold text-slate-900 dark:text-white tracking-tight">PHARMA PRO</span>
           </div>
-          <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em]">Aéroport de Lomé</p>
+          <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em]">Aéroport de Lomé</p>
         </div>
 
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
@@ -970,20 +989,27 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
-        <header className="h-20 border-b border-white/5 bg-[#0e1629]/50 backdrop-blur-md flex items-center justify-between px-8 sticky top-0 z-40">
+        <header className="h-20 border-b border-slate-200 dark:border-white/5 bg-white/50 dark:bg-[#0e1629]/50 backdrop-blur-md flex items-center justify-between px-8 sticky top-0 z-40 transition-colors duration-300">
           <div className="flex items-center gap-4">
-            <h2 className="text-xl font-bold text-white capitalize">
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white capitalize">
               {activeTab === 'accueil' ? "Tableau de Bord" : 
                activeTab === 'dcssa' ? "DCSSA" :
                activeTab === 'saisie' ? "Mise à jour" :
                activeTab === 'parametres' ? "Paramètres" :
                activeTab}
-              {subTab && <span className="text-slate-500 font-normal ml-2">/ {subTab}</span>}
+              {subTab && <span className="text-slate-400 dark:text-slate-500 font-normal ml-2">/ {subTab}</span>}
             </h2>
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="flex bg-white/5 rounded-xl p-1 overflow-x-auto max-w-[400px] md:max-w-none">
+            <button
+              onClick={() => setDarkMode(!darkMode)}
+              className="p-2.5 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:text-emerald-500 dark:hover:text-emerald-400 transition-all border border-slate-200 dark:border-white/5"
+              title={darkMode ? "Passer au mode clair" : "Passer au mode sombre"}
+            >
+              {darkMode ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+            <div className="flex bg-slate-100 dark:bg-white/5 rounded-xl p-1 overflow-x-auto max-w-[400px] md:max-w-none border border-slate-200 dark:border-white/5">
               {(['JOUR', 'SEMAINE', 'QUINZAINE', 'MOIS', 'TRIMESTRE', 'SEMESTRE', 'ANNEE'] as Period[]).map((p) => (
                 <button
                   key={p}
@@ -1025,21 +1051,21 @@ export default function App() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 20 }}
-                  className="bg-[#0e1629] border border-white/10 rounded-2xl p-8 max-w-sm w-full shadow-2xl"
+                  className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/10 rounded-2xl p-8 max-w-sm w-full shadow-2xl transition-colors duration-300"
                 >
                   <div className="text-center mb-6">
                     <div className="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center mx-auto mb-4 border border-amber-500/30">
                       <Lock className="w-6 h-6 text-amber-500" />
                     </div>
-                    <h3 className="text-lg font-bold text-white">Zone Protégée</h3>
-                    <p className="text-slate-400 text-xs mt-1">Entrez le mot de passe pour accéder à cette section</p>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Zone Protégée</h3>
+                    <p className="text-slate-500 dark:text-slate-400 text-xs mt-1">Entrez le mot de passe pour accéder à cette section</p>
                   </div>
                   
                   <div className="space-y-4">
                     <input 
                       type="password" 
                       autoFocus
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                      className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-colors"
                       placeholder="Mot de passe"
                       value={passwordInput}
                       onChange={(e) => setPasswordInput(e.target.value)}
@@ -1062,7 +1088,7 @@ export default function App() {
                     <div className="flex gap-3">
                       <button 
                         onClick={() => { setPasswordModal(null); setPasswordInput(''); setPasswordError(''); }}
-                        className="flex-1 px-4 py-3 rounded-xl bg-white/5 text-white hover:bg-white/10 transition-colors text-sm font-medium"
+                        className="flex-1 px-4 py-3 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10 transition-colors text-sm font-medium border border-slate-200 dark:border-white/10"
                       >
                         Annuler
                       </button>
@@ -1098,17 +1124,17 @@ export default function App() {
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.95 }}
-                  className="bg-[#0e1629] border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+                  className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl transition-colors duration-300"
                 >
                   <div className="flex items-center gap-3 mb-4 text-amber-500">
                     <AlertTriangle size={24} />
-                    <h3 className="text-lg font-bold text-white">{confirmDialog.title}</h3>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">{confirmDialog.title}</h3>
                   </div>
-                  <p className="text-slate-400 mb-6 text-sm">{confirmDialog.message}</p>
+                  <p className="text-slate-500 dark:text-slate-400 mb-6 text-sm">{confirmDialog.message}</p>
                   <div className="flex gap-3">
                     <button 
                       onClick={() => setConfirmDialog(null)}
-                      className="flex-1 px-4 py-2 rounded-xl bg-white/5 text-white hover:bg-white/10 transition-colors text-sm font-medium"
+                      className="flex-1 px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10 transition-colors text-sm font-medium border border-slate-200 dark:border-white/10"
                     >
                       Annuler
                     </button>
@@ -1131,15 +1157,15 @@ export default function App() {
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.95 }}
-                  className="bg-[#0f172a] border border-white/10 rounded-2xl p-8 w-full max-w-md shadow-2xl"
+                  className="bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-white/10 rounded-2xl p-8 w-full max-w-md shadow-2xl transition-colors duration-300"
                 >
                   <div className="flex items-center gap-3 mb-6 text-emerald-500">
                     <div className="p-3 bg-emerald-500/10 rounded-xl">
                       <Edit2 size={24} />
                     </div>
                     <div>
-                      <h3 className="text-xl font-bold text-white">Modifier le Montant</h3>
-                      <p className="text-sm text-slate-400">Facture: {entities.find(e => e.id === editingTransaction.entityId)?.name}</p>
+                      <h3 className="text-xl font-bold text-slate-900 dark:text-white">Modifier le Montant</h3>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">Facture: {entities.find(e => e.id === editingTransaction.entityId)?.name}</p>
                     </div>
                   </div>
 
@@ -1150,7 +1176,7 @@ export default function App() {
                         type="number"
                         value={editAmount}
                         onChange={(e) => setEditAmount(e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                        className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
                         placeholder="0.00"
                         autoFocus
                       />
@@ -1159,7 +1185,7 @@ export default function App() {
                     <div className="flex gap-3 pt-4">
                       <button 
                         onClick={() => setEditingTransaction(null)}
-                        className="flex-1 px-4 py-3 rounded-xl bg-white/5 text-white hover:bg-white/10 transition-colors text-sm font-medium"
+                        className="flex-1 px-4 py-3 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10 transition-colors text-sm font-medium border border-slate-200 dark:border-white/10"
                       >
                         Annuler
                       </button>
@@ -1188,8 +1214,8 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-[#0e1629] border border-white/5 rounded-2xl p-6">
-                  <h3 className="text-lg font-bold text-white mb-6">Évolution Entrées vs Sorties</h3>
+                <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Évolution Entrées vs Sorties</h3>
                   <div className="h-80">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={recettesChartData}>
@@ -1199,12 +1225,17 @@ export default function App() {
                             <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                           </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                        <XAxis dataKey="name" stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
-                        <YAxis stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `${v/1000000}M`} />
+                        <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
+                        <XAxis dataKey="name" stroke={darkMode ? "#64748b" : "#94a3b8"} fontSize={12} tickLine={false} axisLine={false} />
+                        <YAxis stroke={darkMode ? "#64748b" : "#94a3b8"} fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `${v/1000000}M`} />
                         <Tooltip 
-                          contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }}
-                          itemStyle={{ fontSize: '12px' }}
+                          contentStyle={{ 
+                            backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                            border: `1px solid ${darkMode ? '#1e293b' : '#e2e8f0'}`, 
+                            borderRadius: '12px',
+                            color: darkMode ? '#f1f5f9' : '#0f172a'
+                          }}
+                          itemStyle={{ fontSize: '12px', color: darkMode ? '#f1f5f9' : '#0f172a' }}
                         />
                         <Area type="monotone" dataKey="comptants" stroke="#10b981" fillOpacity={1} fill="url(#colorRec)" name="Recettes" />
                       </AreaChart>
@@ -1212,8 +1243,8 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="bg-[#0e1629] border border-white/5 rounded-2xl p-6">
-                  <h3 className="text-lg font-bold text-white mb-6">Répartition des Recettes</h3>
+                <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Répartition des Recettes</h3>
                   <div className="h-80">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
@@ -1237,7 +1268,12 @@ export default function App() {
                           <Cell fill="#ef4444" />
                         </Pie>
                         <Tooltip 
-                          contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }}
+                          contentStyle={{ 
+                            backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                            border: `1px solid ${darkMode ? '#1e293b' : '#e2e8f0'}`, 
+                            borderRadius: '12px',
+                            color: darkMode ? '#f1f5f9' : '#0f172a'
+                          }}
                         />
                         <Legend verticalAlign="bottom" height={36}/>
                       </PieChart>
@@ -1247,9 +1283,9 @@ export default function App() {
               </div>
 
               {/* Section Implants sur Accueil */}
-              <div className="bg-[#0e1629] border border-white/5 rounded-2xl p-6">
+              <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
                 <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-lg font-bold text-white">Dernières Consommations d'Implants</h3>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">Dernières Consommations d'Implants</h3>
                   <button 
                     onClick={() => setActiveTab('implants')}
                     className="text-xs text-emerald-500 hover:text-emerald-400 font-bold uppercase tracking-wider transition-colors"
@@ -1260,20 +1296,20 @@ export default function App() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
                     <thead>
-                      <tr className="bg-white/2">
+                      <tr className="bg-slate-50 dark:bg-white/2">
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Montant</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5">
+                    <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                       {transactions
                         .filter(t => t.type === 'CONSOMMATION_IMPLANT')
                         .slice(0, 5)
                         .map((t, i) => (
-                        <tr key={i} className="hover:bg-white/2 transition-colors">
-                          <td className="px-6 py-4 text-sm text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
-                          <td className="px-6 py-4 text-sm text-white">{t.description}</td>
+                        <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                          <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                          <td className="px-6 py-4 text-sm text-slate-900 dark:text-white">{t.description}</td>
                           <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold text-right">{formatCurrency(t.amount)}</td>
                         </tr>
                       ))}
@@ -1299,15 +1335,23 @@ export default function App() {
                 <StatCard label="Remises Autorisées" value={formatCurrency(recettesData.REMISE)} subValue={`Impact sur marge`} color="red" />
               </div>
 
-              <div className="bg-[#0e1629] border border-white/5 rounded-2xl p-6">
-                <h3 className="text-lg font-bold text-white mb-6">Évolution des Flux de Recettes</h3>
+              <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Évolution des Flux de Recettes</h3>
                 <div className="h-96">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={recettesChartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
                       <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
                       <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `${v/1000}k`} />
-                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }} />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                          border: darkMode ? '1px solid #1e293b' : '1px solid #e2e8f0', 
+                          borderRadius: '12px',
+                          color: darkMode ? '#f8fafc' : '#0f172a'
+                        }} 
+                        itemStyle={{ color: darkMode ? '#f8fafc' : '#0f172a' }}
+                      />
                       <Legend />
                       <Line type="monotone" dataKey="comptants" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} name="Comptants" />
                       <Line type="monotone" dataKey="tiers" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} name="Tiers Payant" />
@@ -1318,32 +1362,32 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-[#0e1629] border border-white/5 rounded-2xl overflow-hidden">
+              <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
                 <table className="w-full text-left">
                   <thead>
-                    <tr className="bg-white/2">
+                    <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Catégorie</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">% du Total</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/5">
+                  <tbody className="divide-y divide-slate-200 dark:divide-white/5">
                     {[
                       { label: 'Recette Brute Encaissée', val: recettesData.COMPTANTS + recettesData.PART_ASSUREE, color: 'text-emerald-500' },
                       { label: 'Tiers Payant', val: recettesData.TIERS_PAYANT, color: 'text-blue-500' },
                       { label: 'Crédit Patients', val: recettesData.CREDIT, color: 'text-amber-500' },
                       { label: 'Remises Autorisées', val: recettesData.REMISE, color: 'text-red-500' },
                     ].map((row, i) => (
-                      <tr key={i} className="hover:bg-white/2 transition-colors">
-                        <td className="px-6 py-4 text-sm font-medium text-white">{row.label}</td>
+                      <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                        <td className="px-6 py-4 text-sm font-medium text-slate-900 dark:text-white">{row.label}</td>
                         <td className={cn("px-6 py-4 text-sm font-mono font-bold", row.color)}>{formatCurrency(row.val)}</td>
-                        <td className="px-6 py-4 text-sm text-slate-400">{((row.val / recettesData.total) * 100).toFixed(1)}%</td>
+                        <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{((row.val / recettesData.total) * 100).toFixed(1)}%</td>
                       </tr>
                     ))}
-                    <tr className="bg-white/5">
-                      <td className="px-6 py-4 text-sm font-bold text-white uppercase">Total Période</td>
-                      <td className="px-6 py-4 text-sm font-mono font-bold text-white">{formatCurrency(recettesData.total)}</td>
-                      <td className="px-6 py-4 text-sm font-bold text-white">100%</td>
+                    <tr className="bg-slate-50 dark:bg-white/5">
+                      <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white uppercase">Total Période</td>
+                      <td className="px-6 py-4 text-sm font-mono font-bold text-slate-900 dark:text-white">{formatCurrency(recettesData.total)}</td>
+                      <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">100%</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1354,14 +1398,14 @@ export default function App() {
           {/* TAB: FOURNISSEURS */}
           {activeTab === 'fournisseurs' && (
             <div className="space-y-8">
-              <div className="flex gap-4 border-b border-white/5">
+              <div className="flex gap-4 border-b border-slate-200 dark:border-white/5">
                 {['COMMANDES', 'FACTURES', 'RETOURS'].map(tab => (
                   <button
                     key={tab}
                     onClick={() => setSubTab(tab)}
                     className={cn(
                       "px-6 py-3 text-sm font-bold transition-all border-b-2",
-                      subTab === tab ? "border-emerald-500 text-emerald-500" : "border-transparent text-slate-500 hover:text-slate-300"
+                      subTab === tab ? "border-emerald-500 text-emerald-500" : "border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-300"
                     )}
                   >
                     {tab}
@@ -1371,15 +1415,23 @@ export default function App() {
 
               {subTab === 'COMMANDES' && (
                 <div className="space-y-8">
-                  <div className="bg-[#0e1629] border border-white/5 rounded-2xl p-6">
-                    <h3 className="text-lg font-bold text-white mb-6">Évolution des Commandes</h3>
+                  <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Évolution des Commandes</h3>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={fournisseursChartData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                          <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
                           <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
                           <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `${v/1000}k`} />
-                          <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }} />
+                          <Tooltip 
+                            contentStyle={{ 
+                              backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                              border: darkMode ? '1px solid #1e293b' : '1px solid #e2e8f0', 
+                              borderRadius: '12px',
+                              color: darkMode ? '#f8fafc' : '#0f172a'
+                            }} 
+                            itemStyle={{ color: darkMode ? '#f8fafc' : '#0f172a' }}
+                          />
                           <Bar dataKey="commandes" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Commandes" />
                         </BarChart>
                       </ResponsiveContainer>
@@ -1387,10 +1439,10 @@ export default function App() {
                   </div>
 
                   {fournisseursPivotData.length > 0 ? (
-                    <div className="bg-[#0e1629] border border-white/5 rounded-2xl overflow-x-auto">
+                    <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-x-auto transition-colors duration-300">
                       <table className="w-full text-left">
                         <thead>
-                          <tr className="bg-white/2">
+                          <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                             <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
                             {Object.keys(fournisseursPivotData[0]).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
                               <th key={month} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">{month}</th>
@@ -1398,12 +1450,12 @@ export default function App() {
                             <th className="px-6 py-4 text-[10px] font-bold text-emerald-500 uppercase tracking-wider">Total</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-white/5">
+                        <tbody className="divide-y divide-slate-200 dark:divide-white/5">
                           {fournisseursPivotData.map((row, i) => (
-                            <tr key={i} className="hover:bg-white/2 transition-colors">
-                              <td className="px-6 py-4 text-sm font-bold text-white">{row.name}</td>
+                            <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                              <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{row.name}</td>
                               {Object.keys(row).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
-                                <td key={month} className="px-6 py-4 text-sm font-mono text-slate-400">{formatCurrency(row[month])}</td>
+                                <td key={month} className="px-6 py-4 text-sm font-mono text-slate-500 dark:text-slate-400">{formatCurrency(row[month])}</td>
                               ))}
                               <td className="px-6 py-4 text-sm font-mono font-bold text-emerald-500">{formatCurrency(row.total)}</td>
                             </tr>
@@ -1412,18 +1464,18 @@ export default function App() {
                       </table>
                     </div>
                   ) : (
-                    <div className="bg-[#0e1629] border border-white/5 rounded-2xl p-8 text-center">
-                      <p className="text-slate-400 text-sm">Aucun fournisseur enregistré ou aucune donnée disponible.</p>
+                    <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-8 text-center transition-colors duration-300">
+                      <p className="text-slate-500 dark:text-slate-400 text-sm">Aucun fournisseur enregistré ou aucune donnée disponible.</p>
                     </div>
                   )}
                 </div>
               )}
 
               {subTab === 'FACTURES' && (
-                <div className="bg-[#0e1629] border border-white/5 rounded-2xl overflow-hidden">
+                <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
                   <table className="w-full text-left">
                     <thead>
-                      <tr className="bg-white/2">
+                      <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
@@ -1433,12 +1485,12 @@ export default function App() {
                         )}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5">
+                    <tbody className="divide-y divide-slate-200 dark:divide-white/5">
                       {transactions.filter(t => t.type === 'FACTURE').slice(0, 10).map((t, i) => (
-                        <tr key={i} className="hover:bg-white/2 transition-colors">
-                          <td className="px-6 py-4 text-sm font-bold text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
-                          <td className="px-6 py-4 text-sm font-mono text-white">{formatCurrency(t.amount)}</td>
-                          <td className="px-6 py-4 text-sm text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                        <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                          <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
+                          <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
+                          <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
                           <td className="px-6 py-4">
                             <span className={cn(
                               "px-2 py-1 rounded-md text-[9px] font-bold uppercase",
@@ -1451,7 +1503,7 @@ export default function App() {
                             <td className="px-6 py-4 text-right">
                               <button 
                                 onClick={() => setEditingTransaction(t)}
-                                className="p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all"
+                                className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
                               >
                                 <Edit2 size={16} />
                               </button>
@@ -1469,14 +1521,14 @@ export default function App() {
           {/* TAB: DCSSA */}
           {activeTab === 'dcssa' && (
             <div className="space-y-8">
-              <div className="flex gap-4 border-b border-white/5">
+              <div className="flex gap-4 border-b border-slate-200 dark:border-white/5">
                 {['DCSSA', 'KOUNDJOURE'].map(tab => (
                   <button
                     key={tab}
                     onClick={() => setSubTab(tab)}
                     className={cn(
                       "px-6 py-3 text-sm font-bold transition-all border-b-2",
-                      subTab === tab ? "border-emerald-500 text-emerald-500" : "border-transparent text-slate-500 hover:text-slate-300"
+                      subTab === tab ? "border-emerald-500 text-emerald-500" : "border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-300"
                     )}
                   >
                     {tab}
@@ -1484,38 +1536,46 @@ export default function App() {
                 ))}
               </div>
 
-              <div className="bg-[#0e1629] border border-white/5 rounded-2xl p-6">
-                <h3 className="text-lg font-bold text-white mb-6">Consommation Mensuelle {subTab}</h3>
+              <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Consommation Mensuelle {subTab}</h3>
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={dcssaChartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
                       <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
                       <YAxis stroke="#64748b" fontSize={12} />
-                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }} />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                          border: darkMode ? '1px solid #1e293b' : '1px solid #e2e8f0', 
+                          borderRadius: '12px',
+                          color: darkMode ? '#f8fafc' : '#0f172a'
+                        }} 
+                        itemStyle={{ color: darkMode ? '#f8fafc' : '#0f172a' }}
+                      />
                       <Bar dataKey={subTab} fill="#3b82f6" radius={[4, 4, 0, 0]} name="Consommation" />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </div>
 
-              <div className="bg-[#0e1629] border border-white/5 rounded-2xl overflow-hidden">
+              <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
                 <table className="w-full text-left">
                   <thead>
-                    <tr className="bg-white/2">
+                    <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Dossiers</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/5">
+                  <tbody className="divide-y divide-slate-200 dark:divide-white/5">
                     {transactions
                       .filter(t => t.type === (subTab === 'DCSSA' ? 'CONSOMMATION_DCSSA' : 'CONSOMMATION_KOUNDJOURE'))
                       .slice(0, 10)
                       .map((t, i) => (
-                      <tr key={i} className="hover:bg-white/2 transition-colors">
-                        <td className="px-6 py-4 text-sm text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
-                        <td className="px-6 py-4 text-sm text-white font-bold">{t.dossiers}</td>
+                      <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                        <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                        <td className="px-6 py-4 text-sm text-slate-900 dark:text-white font-bold">{t.dossiers}</td>
                         <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
                       </tr>
                     ))}
@@ -1534,20 +1594,20 @@ export default function App() {
                 <StatCard label="Moyenne par Acte" value={formatCurrency(filteredTransactions.filter(t => t.type === 'CONSOMMATION_IMPLANT').reduce((s, t) => s + t.amount, 0) / (filteredTransactions.filter(t => t.type === 'CONSOMMATION_IMPLANT').length || 1))} subValue="Coût moyen" color="amber" />
               </div>
 
-              <div className="bg-[#0e1629] border border-white/5 rounded-2xl overflow-hidden">
+              <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
                 <table className="w-full text-left">
                   <thead>
-                    <tr className="bg-white/2">
+                    <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/5">
+                  <tbody className="divide-y divide-slate-200 dark:divide-white/5">
                     {transactions.filter(t => t.type === 'CONSOMMATION_IMPLANT').slice(0, 15).map((t, i) => (
-                      <tr key={i} className="hover:bg-white/2 transition-colors">
-                        <td className="px-6 py-4 text-sm text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
-                        <td className="px-6 py-4 text-sm text-white">{t.description}</td>
+                      <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                        <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                        <td className="px-6 py-4 text-sm text-slate-900 dark:text-white">{t.description}</td>
                         <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
                       </tr>
                     ))}
@@ -1560,7 +1620,7 @@ export default function App() {
           {/* TAB: ASSURANCES */}
           {activeTab === 'assurances' && (
             <div className="space-y-8">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-white/5">
                 <div className="flex gap-4 overflow-x-auto">
                   {['LISTE', 'REJETS', ...entities.filter(e => e.type === 'ASSURANCE').map(a => a.name)].map(tab => (
                     <button
@@ -1568,7 +1628,7 @@ export default function App() {
                       onClick={() => setSubTab(tab)}
                       className={cn(
                         "px-6 py-3 text-sm font-bold transition-all border-b-2 whitespace-nowrap",
-                        subTab === tab ? "border-emerald-500 text-emerald-500" : "border-transparent text-slate-500 hover:text-slate-300"
+                        subTab === tab ? "border-emerald-500 text-emerald-500" : "border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-300"
                       )}
                     >
                       {tab}
@@ -1590,10 +1650,10 @@ export default function App() {
                     const amount = transactions.filter(t => t.entityId === a.id && t.type === 'CONSOMMATION_ASSURANCE').reduce((s, t) => s + t.amount, 0);
                     const rejets = transactions.filter(t => t.entityId === a.id && t.type === 'REJET_ASSURANCE').reduce((s, t) => s + t.amount, 0);
                     return (
-                      <div key={a.id} className="bg-[#0e1629] border border-white/5 rounded-2xl p-6 hover:border-emerald-500/30 transition-all group">
+                      <div key={a.id} className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 hover:border-emerald-500/30 transition-all group shadow-sm dark:shadow-none">
                         <div className="flex justify-between items-start mb-4">
                           <div>
-                            <h4 className="text-lg font-bold text-white">{a.name}</h4>
+                            <h4 className="text-lg font-bold text-slate-900 dark:text-white">{a.name}</h4>
                             <p className="text-[10px] text-slate-500 uppercase tracking-widest">{a.code}</p>
                           </div>
                           <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white transition-all">
@@ -1621,23 +1681,23 @@ export default function App() {
               )}
 
               {subTab === 'REJETS' && (
-                <div className="bg-[#0e1629] border border-white/5 rounded-2xl overflow-hidden">
+                <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
                   <table className="w-full text-left">
                     <thead>
-                      <tr className="bg-white/2">
+                      <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Assurance</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Motif</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5">
+                    <tbody className="divide-y divide-slate-200 dark:divide-white/5">
                       {transactions.filter(t => t.type === 'REJET_ASSURANCE').slice(0, 15).map((t, i) => (
-                        <tr key={i} className="hover:bg-white/2 transition-colors">
-                          <td className="px-6 py-4 text-sm font-bold text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
-                          <td className="px-6 py-4 text-sm text-slate-400">{t.reason}</td>
+                        <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                          <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
+                          <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.reason}</td>
                           <td className="px-6 py-4 text-sm text-slate-500">{format(t.date, 'dd/MM/yyyy')}</td>
-                          <td className="px-6 py-4 text-sm font-mono text-red-400 font-bold">{formatCurrency(t.amount)}</td>
+                          <td className="px-6 py-4 text-sm font-mono text-red-500 font-bold">{formatCurrency(t.amount)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1652,20 +1712,20 @@ export default function App() {
                     <StatCard label="Total Rejets" value={formatCurrency(transactions.filter(t => t.entityId === entities.find(e => e.name === subTab)?.id && t.type === 'REJET_ASSURANCE').reduce((s, t) => s + t.amount, 0))} subValue="Pertes sèches" color="red" />
                     <StatCard label="Nombre de Bénéficiaires" value={transactions.filter(t => t.entityId === entities.find(e => e.name === subTab)?.id && t.type === 'CONSOMMATION_ASSURANCE').reduce((s, t) => s + (t.beneficiaires || 0), 0).toString()} subValue="Patients servis" color="emerald" />
                   </div>
-                  <div className="bg-[#0e1629] border border-white/5 rounded-2xl overflow-hidden">
+                  <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
                     <table className="w-full text-left">
                       <thead>
-                        <tr className="bg-white/2">
+                        <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Bénéficiaires</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-white/5">
+                      <tbody className="divide-y divide-slate-200 dark:divide-white/5">
                         {transactions.filter(t => t.entityId === entities.find(e => e.name === subTab)?.id && t.type === 'CONSOMMATION_ASSURANCE').slice(0, 15).map((t, i) => (
-                          <tr key={i} className="hover:bg-white/2 transition-colors">
-                            <td className="px-6 py-4 text-sm text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
-                            <td className="px-6 py-4 text-sm text-white font-bold">{t.beneficiaires}</td>
+                          <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                            <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                            <td className="px-6 py-4 text-sm text-slate-900 dark:text-white font-bold">{t.beneficiaires}</td>
                             <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
                           </tr>
                         ))}
@@ -1679,95 +1739,215 @@ export default function App() {
 
           {/* TAB: SAISIE */}
           {activeTab === 'saisie' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-1 space-y-6">
-                <div className="bg-[#0e1629] border border-white/5 rounded-2xl p-6">
-                  <h3 className="text-lg font-bold text-white mb-6">Nouvelle Saisie</h3>
-                  <form className="space-y-4" onSubmit={async (e) => {
-                    e.preventDefault();
-                    const formData = new FormData(e.currentTarget);
-                    const type = formData.get('type') as TransactionType;
-                    const amount = Number(formData.get('amount'));
-                    const date = new Date(formData.get('date') as string);
-                    const desc = formData.get('desc') as string;
-                    const entityId = formData.get('entityId') as string;
+            <div className="space-y-6">
+              {/* Saisie Sections Navigation */}
+              <div className="flex flex-wrap gap-2 bg-white dark:bg-[#0e1629] p-2 rounded-2xl border border-slate-200 dark:border-white/5 transition-colors duration-300">
+                {[
+                  { id: 'VENTES', label: 'Ventes & Recettes', icon: DollarSign },
+                  { id: 'FOURNISSEURS', label: 'Fournisseurs', icon: Package },
+                  { id: 'CONSOMMATIONS', label: 'Consommations', icon: Activity },
+                  { id: 'REJETS', label: 'Assurances & Rejets', icon: ShieldCheck }
+                ].map((section) => (
+                  <button
+                    key={section.id}
+                    onClick={() => setSaisieSection(section.id as any)}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all",
+                      saisieSection === section.id 
+                        ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20" 
+                        : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white"
+                    )}
+                  >
+                    <section.icon size={16} />
+                    {section.label}
+                  </button>
+                ))}
+              </div>
 
-                    try {
-                      const newTx = await api.createTransaction({
-                        date,
-                        type,
-                        amount,
-                        category: 'Saisie Manuelle',
-                        description: desc,
-                        entityId: entityId || undefined,
-                        dossiers: (type === 'CONSOMMATION_DCSSA' || type === 'CONSOMMATION_KOUNDJOURE') ? Number(formData.get('dossiers')) : undefined
-                      });
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-1 space-y-6">
+                  <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">
+                      {saisieSection === 'VENTES' && 'Saisie Ventes'}
+                      {saisieSection === 'FOURNISSEURS' && 'Saisie Fournisseurs'}
+                      {saisieSection === 'CONSOMMATIONS' && 'Saisie Consommations'}
+                      {saisieSection === 'REJETS' && 'Saisie Rejets'}
+                    </h3>
+                    <form className="space-y-4" onSubmit={async (e) => {
+                      e.preventDefault();
+                      const formData = new FormData(e.currentTarget);
+                      const type = formData.get('type') as TransactionType;
+                      const amount = Number(formData.get('amount'));
+                      const date = new Date(formData.get('date') as string);
+                      const desc = formData.get('desc') as string;
+                      const entityId = formData.get('entityId') as string;
+                      const status = formData.get('status') as any;
+                      const dossiers = formData.get('dossiers') ? Number(formData.get('dossiers')) : undefined;
+                      const beneficiaires = formData.get('beneficiaires') ? Number(formData.get('beneficiaires')) : undefined;
+                      const reason = formData.get('reason') as string;
 
-                      setTransactions(prev => [newTx, ...prev]);
-                      addLog('CREATE', 'TRANSACTION', newTx.id, `Saisie manuelle: ${type} - ${formatCurrency(amount)}`, undefined, newTx);
-                      toast.success('Donnée enregistrée');
-                      (e.target as HTMLFormElement).reset();
-                    } catch (error) {
-                      console.error("Erreur détaillée lors de l'enregistrement:", error);
-                      let message = "Erreur lors de l'enregistrement";
-                      if (error instanceof Error) {
-                        try {
-                          const info = JSON.parse(error.message);
-                          if (info.error.includes('insufficient permissions')) {
-                            message = "Permissions insuffisantes pour cette action.";
-                          } else {
-                            message = `Erreur: ${info.error}`;
+                      try {
+                        const newTx = await api.createTransaction({
+                          date,
+                          type,
+                          amount,
+                          category: 'Saisie Manuelle',
+                          description: desc,
+                          entityId: entityId || undefined,
+                          status: status || undefined,
+                          dossiers,
+                          beneficiaires,
+                          reason: reason || undefined
+                        });
+
+                        setTransactions(prev => [newTx, ...prev]);
+                        addLog('CREATE', 'TRANSACTION', newTx.id, `Saisie manuelle: ${type} - ${formatCurrency(amount)}`, undefined, newTx);
+                        toast.success('Donnée enregistrée');
+                        (e.target as HTMLFormElement).reset();
+                      } catch (error) {
+                        console.error("Erreur détaillée lors de l'enregistrement:", error);
+                        let message = "Erreur lors de l'enregistrement";
+                        if (error instanceof Error) {
+                          try {
+                            const info = JSON.parse(error.message);
+                            if (info.error.includes('insufficient permissions')) {
+                              message = "Permissions insuffisantes pour cette action.";
+                            } else {
+                              message = `Erreur: ${info.error}`;
+                            }
+                          } catch {
+                            message = error.message;
                           }
-                        } catch {
-                          message = error.message;
                         }
+                        toast.error(message);
                       }
-                      toast.error(message);
-                    }
-                  }}>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Type de Donnée</label>
-                      <select name="type" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500 outline-none">
-                        <option value="COMPTANTS">Recette Comptant</option>
-                        <option value="PART_ASSUREE">Part Assurée</option>
-                        <option value="TIERS_PAYANT">Tiers Payant</option>
-                        <option value="CREDIT">Crédit Patient</option>
-                        <option value="COMMANDE">Commande Fournisseur</option>
-                        <option value="FACTURE">Facture Fournisseur</option>
-                        <option value="CONSOMMATION_DCSSA">Consommation DCSSA</option>
-                        <option value="CONSOMMATION_KOUNDJOURE">Consommation Koundjouré</option>
-                        <option value="CONSOMMATION_ASSURANCE">Consommation Assurance</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Dossiers (DCSSA)</label>
-                      <input name="dossiers" type="number" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500 outline-none" placeholder="Nb dossiers" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Montant</label>
-                      <input name="amount" type="number" required className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500 outline-none" placeholder="0" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Date</label>
-                      <input name="date" type="date" required className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500 outline-none" defaultValue={format(new Date(), 'yyyy-MM-dd')} />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Description</label>
-                      <input name="desc" type="text" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500 outline-none" placeholder="Détails..." />
-                    </div>
-                    <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2">
-                      <Plus size={18} />
-                      Enregistrer
-                    </button>
-                  </form>
-                </div>
+                    }}>
+                      {/* Form Fields based on Section */}
+                      {saisieSection === 'VENTES' && (
+                        <>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Type de Vente</label>
+                            <select name="type" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
+                              <option value="COMPTANTS">Recette Comptant</option>
+                              <option value="PART_ASSUREE">Part Assurée</option>
+                              <option value="TIERS_PAYANT">Tiers Payant</option>
+                              <option value="CREDIT">Crédit Patient</option>
+                              <option value="REMISE">Remise</option>
+                            </select>
+                          </div>
+                        </>
+                      )}
 
-                <div className="bg-[#0e1629] border border-white/5 rounded-2xl p-6">
-                  <h3 className="text-lg font-bold text-white mb-4">Import Excel</h3>
+                      {saisieSection === 'FOURNISSEURS' && (
+                        <>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Type</label>
+                            <select name="type" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
+                              <option value="COMMANDE">Commande</option>
+                              <option value="FACTURE">Facture</option>
+                              <option value="RETOUR">Retour</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Fournisseur</label>
+                            <select name="entityId" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
+                              <option value="">Sélectionner...</option>
+                              {entities.filter(e => e.type === 'FOURNISSEUR').map(e => (
+                                <option key={e.id} value={e.id}>{e.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Statut</label>
+                            <select name="status" className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
+                              <option value="EN_ATTENTE">En attente</option>
+                              <option value="PAYÉE">Payée</option>
+                              <option value="LIVRÉ">Livré</option>
+                            </select>
+                          </div>
+                        </>
+                      )}
+
+                      {saisieSection === 'CONSOMMATIONS' && (
+                        <>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Type de Consommation</label>
+                            <select name="type" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
+                              <option value="CONSOMMATION_DCSSA">DCSSA</option>
+                              <option value="CONSOMMATION_KOUNDJOURE">Koundjouré</option>
+                              <option value="CONSOMMATION_IMPLANT">Implants</option>
+                              <option value="CONSOMMATION_ASSURANCE">Assurance</option>
+                            </select>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Dossiers</label>
+                              <input name="dossiers" type="number" className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" placeholder="Nb" />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Bénéficiaires</label>
+                              <input name="beneficiaires" type="number" className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" placeholder="Nb" />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Entité (Assurance/Fournisseur)</label>
+                            <select name="entityId" className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
+                              <option value="">Sélectionner...</option>
+                              {entities.map(e => (
+                                <option key={e.id} value={e.id}>{e.name} ({e.type})</option>
+                              ))}
+                            </select>
+                          </div>
+                        </>
+                      )}
+
+                      {saisieSection === 'REJETS' && (
+                        <>
+                          <input type="hidden" name="type" value="REJET_ASSURANCE" />
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Assurance</label>
+                            <select name="entityId" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
+                              <option value="">Sélectionner...</option>
+                              {entities.filter(e => e.type === 'ASSURANCE').map(e => (
+                                <option key={e.id} value={e.id}>{e.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Motif du Rejet</label>
+                            <input name="reason" type="text" className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" placeholder="Ex: Dépassement plafond" />
+                          </div>
+                        </>
+                      )}
+
+                      {/* Common Fields */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Montant</label>
+                          <input name="amount" type="number" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" placeholder="0" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Date</label>
+                          <input name="date" type="date" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" defaultValue={format(new Date(), 'yyyy-MM-dd')} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Description</label>
+                        <input name="desc" type="text" className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" placeholder="Détails..." />
+                      </div>
+                      <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2">
+                        <Plus size={18} />
+                        Enregistrer
+                      </button>
+                    </form>
+                  </div>
+
+                <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Import Excel</h3>
                   <div className="space-y-4">
                     <button 
                       onClick={handleDownloadTemplate}
-                      className="w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-white py-3 rounded-xl border border-white/10 transition-all text-sm"
+                      className="w-full flex items-center justify-center gap-2 bg-slate-50 dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10 text-slate-900 dark:text-white py-3 rounded-xl border border-slate-200 dark:border-white/10 transition-all text-sm"
                     >
                       <FileSpreadsheet size={18} className="text-emerald-500" />
                       Télécharger Modèle
@@ -1782,21 +1962,21 @@ export default function App() {
               </div>
 
               <div className="lg:col-span-2">
-                <div className="bg-[#0e1629] border border-white/5 rounded-2xl overflow-hidden">
-                  <div className="p-6 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <h3 className="font-bold text-white">Dernières Saisies</h3>
+                <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
+                  <div className="p-6 border-b border-slate-100 dark:border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <h3 className="font-bold text-slate-900 dark:text-white">Dernières Saisies</h3>
                     <div className="flex flex-wrap items-center gap-4">
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
                         <input 
                           type="text" 
                           placeholder="Rechercher..." 
-                          className="bg-white/5 border border-white/10 rounded-lg pl-9 pr-4 py-1.5 text-xs text-white outline-none focus:border-emerald-500"
+                          className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg pl-9 pr-4 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
                           onChange={(e) => setSearchQuery(e.target.value)}
                         />
                       </div>
                       <select 
-                        className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-emerald-500"
+                        className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
                         value={saisieTypeFilter}
                         onChange={(e) => setSaisieTypeFilter(e.target.value)}
                       >
@@ -1817,37 +1997,68 @@ export default function App() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
                       <thead>
-                        <tr className="bg-white/2">
+                        <tr className="border-b border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-white/2">
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Type</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
-                          {userRole !== 'directrice' && (
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Action</th>
-                          )}
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Détails</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Montant</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-center">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-white/5">
+                      <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                         {transactions
                           .filter(t => {
-                            const matchesSearch = t.description.toLowerCase().includes(searchQuery.toLowerCase()) || t.type.toLowerCase().includes(searchQuery.toLowerCase());
+                            const matchesSearch = t.description.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                               t.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                               (t.entityId && entities.find(e => e.id === t.entityId)?.name.toLowerCase().includes(searchQuery.toLowerCase()));
                             const matchesType = saisieTypeFilter === 'TOUS' || t.type === saisieTypeFilter;
                             return matchesSearch && matchesType;
                           })
                           .slice(0, 15)
                           .map((t) => (
-                          <tr key={t.id} className="hover:bg-white/2 transition-colors">
-                            <td className="px-6 py-4 text-xs text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                          <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                            <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
                             <td className="px-6 py-4">
-                              <span className="text-xs font-medium text-white">{t.type}</span>
+                              <span className={cn(
+                                "px-2 py-1 rounded-md text-[10px] font-bold uppercase",
+                                t.type.startsWith('CONSOMMATION') ? "bg-blue-500/10 text-blue-500" :
+                                t.type.includes('REJET') ? "bg-red-500/10 text-red-500" :
+                                t.type.includes('COMMANDE') || t.type.includes('FACTURE') ? "bg-amber-500/10 text-amber-500" :
+                                "bg-emerald-500/10 text-emerald-500"
+                              )}>
+                                {t.type.replace('_', ' ')}
+                              </span>
                             </td>
-                            <td className="px-6 py-4 text-xs font-mono font-bold text-white">{formatCurrency(t.amount)}</td>
-                            {userRole !== 'directrice' && (
-                              <td className="px-6 py-4">
-                                <button onClick={() => handleDeleteTransaction(t.id)} className="text-slate-500 hover:text-red-500 transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="text-sm text-slate-900 dark:text-white font-medium">
+                                {t.entityId ? entities.find(e => e.id === t.entityId)?.name : t.description}
+                              </div>
+                              {t.dossiers && <div className="text-[10px] text-slate-500">{t.dossiers} dossiers</div>}
+                              {t.beneficiaires && <div className="text-[10px] text-slate-500">{t.beneficiaires} bénéficiaires</div>}
+                              {t.reason && <div className="text-[10px] text-red-400/70 italic">{t.reason}</div>}
+                            </td>
+                            <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white font-bold text-right">
+                              {formatCurrency(t.amount)}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center justify-center gap-2">
+                                <button 
+                                  onClick={() => {
+                                    setEditingTransaction(t);
+                                    setEditAmount(t.amount.toString());
+                                  }}
+                                  className="p-2 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteTransaction(t.id)}
+                                  className="p-2 hover:bg-red-500/10 rounded-lg text-slate-400 hover:text-red-500 transition-colors"
+                                >
                                   <Trash2 size={14} />
                                 </button>
-                              </td>
-                            )}
+                              </div>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1856,22 +2067,23 @@ export default function App() {
                 </div>
               </div>
             </div>
+          </div>
           )}
 
           {/* TAB: PARAMETRES */}
           {activeTab === 'parametres' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-[#0e1629] border border-white/5 rounded-2xl p-6">
-                <h3 className="text-lg font-bold text-white mb-6">Gestion des Partenaires</h3>
+              <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Gestion des Partenaires</h3>
                 <form onSubmit={handleSaveEntity} className="space-y-4 mb-8">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Nom</label>
-                      <input name="name" type="text" required className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500 outline-none" />
+                      <input name="name" type="text" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" />
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Type</label>
-                      <select name="type" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500 outline-none">
+                      <select name="type" className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
                         <option value="FOURNISSEUR">Fournisseur</option>
                         <option value="ASSURANCE">Assurance</option>
                       </select>
@@ -1884,9 +2096,9 @@ export default function App() {
 
                 <div className="space-y-2">
                   {entities.map(e => (
-                    <div key={e.id} className="flex items-center justify-between p-4 bg-white/2 rounded-xl border border-white/5">
+                    <div key={e.id} className="flex items-center justify-between p-4 bg-slate-50 dark:bg-white/2 rounded-xl border border-slate-100 dark:border-white/5">
                       <div>
-                        <p className="text-sm font-bold text-white">{e.name}</p>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white">{e.name}</p>
                         <p className="text-[10px] text-slate-500 uppercase">{e.type}</p>
                       </div>
                       <button className="text-slate-500 hover:text-red-500 transition-colors">
@@ -1897,12 +2109,12 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-[#0e1629] border border-white/5 rounded-2xl p-6">
-                <h3 className="text-lg font-bold text-white mb-6">Configuration Système</h3>
+              <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Configuration Système</h3>
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between p-4 bg-white/2 rounded-xl border border-white/5">
+                  <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-white/2 rounded-xl border border-slate-100 dark:border-white/5">
                     <div>
-                      <p className="text-sm font-bold text-white">Verrouillage de Saisie</p>
+                      <p className="text-sm font-bold text-slate-900 dark:text-white">Verrouillage de Saisie</p>
                       <p className="text-xs text-slate-500">Exiger un code pour modifier les données</p>
                     </div>
                     <button 
@@ -1915,9 +2127,9 @@ export default function App() {
                       {!isSaisieUnlocked ? <Lock size={20} /> : <Unlock size={20} />}
                     </button>
                   </div>
-                  <div className="flex items-center justify-between p-4 bg-white/2 rounded-xl border border-white/5">
+                  <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-white/2 rounded-xl border border-slate-100 dark:border-white/5">
                     <div>
-                      <p className="text-sm font-bold text-white">Verrouillage des Paramètres</p>
+                      <p className="text-sm font-bold text-slate-900 dark:text-white">Verrouillage des Paramètres</p>
                       <p className="text-xs text-slate-500">Exiger un code pour accéder aux réglages</p>
                     </div>
                     <button 
@@ -1937,15 +2149,15 @@ export default function App() {
 
           {/* TAB: LOGS */}
           {activeTab === 'logs' && (
-            <div className="bg-[#0e1629] border border-white/5 rounded-2xl overflow-hidden">
-              <div className="p-6 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <h3 className="font-bold text-white">Journal d'Audit</h3>
+            <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
+              <div className="p-6 border-b border-slate-100 dark:border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <h3 className="font-bold text-slate-900 dark:text-white">Journal d'Audit</h3>
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-slate-500 uppercase">Du</span>
                     <input 
                       type="date" 
-                      className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-emerald-500"
+                      className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
                       value={logStartDate}
                       onChange={(e) => setLogStartDate(e.target.value)}
                     />
@@ -1954,7 +2166,7 @@ export default function App() {
                     <span className="text-[10px] font-bold text-slate-500 uppercase">Au</span>
                     <input 
                       type="date" 
-                      className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-emerald-500"
+                      className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
                       value={logEndDate}
                       onChange={(e) => setLogEndDate(e.target.value)}
                     />
@@ -1972,14 +2184,14 @@ export default function App() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
-                    <tr className="bg-white/2">
+                    <tr className="bg-slate-50 dark:bg-white/2">
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Horodatage</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Action</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cible</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Détails</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/5">
+                  <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                     {logs
                       .filter(log => {
                         if (!logStartDate && !logEndDate) return true;
@@ -1992,8 +2204,8 @@ export default function App() {
                         return true;
                       })
                       .map((log) => (
-                      <tr key={log.id} className="hover:bg-white/2 transition-colors">
-                        <td className="px-6 py-4 text-xs text-slate-400 font-mono">{format(log.timestamp, 'dd/MM/yy HH:mm:ss')}</td>
+                      <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                        <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400 font-mono">{format(log.timestamp, 'dd/MM/yy HH:mm:ss')}</td>
                         <td className="px-6 py-4">
                           <span className={cn(
                             "px-2 py-1 rounded-md text-[9px] font-bold uppercase",
@@ -2005,7 +2217,7 @@ export default function App() {
                             {log.action}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-xs text-white font-medium">{log.targetType}</td>
+                        <td className="px-6 py-4 text-xs text-slate-900 dark:text-white font-medium">{log.targetType}</td>
                         <td className="px-6 py-4 text-xs text-slate-500">{log.details}</td>
                       </tr>
                     ))}
@@ -2028,7 +2240,7 @@ function NavItem({ active, onClick, icon, label }: { active: boolean; onClick: (
       onClick={onClick}
       className={cn(
         "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm transition-all group",
-        active ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "text-slate-500 hover:text-slate-300 hover:bg-white/5"
+        active ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "text-slate-500 hover:text-slate-900 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5"
       )}
     >
       <span className={cn("transition-transform group-hover:scale-110", active ? "text-white" : "text-slate-500")}>{icon}</span>
@@ -2040,7 +2252,7 @@ function NavItem({ active, onClick, icon, label }: { active: boolean; onClick: (
 function KPICard({ label, value, trend, icon, color }: { label: string; value: string; trend: number; icon: React.ReactNode; color: string }) {
   const isPositive = trend >= 0;
   return (
-    <div className="bg-[#0e1629] border border-white/5 rounded-2xl p-6 relative overflow-hidden group">
+    <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 relative overflow-hidden group transition-colors duration-300">
       <div className={cn("absolute top-0 left-0 w-1 h-full", {
         'bg-emerald-500': color === 'emerald',
         'bg-blue-500': color === 'blue',
@@ -2050,9 +2262,9 @@ function KPICard({ label, value, trend, icon, color }: { label: string; value: s
       })} />
       <div className="flex justify-between items-start mb-4">
         <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{label}</p>
-        <div className="p-2 bg-white/5 rounded-lg group-hover:scale-110 transition-transform">{icon}</div>
+        <div className="p-2 bg-slate-100 dark:bg-white/5 rounded-lg group-hover:scale-110 transition-transform">{icon}</div>
       </div>
-      <h4 className="text-2xl font-bold text-white mb-2 font-mono">{value}</h4>
+      <h4 className="text-2xl font-bold text-slate-900 dark:text-white mb-2 font-mono">{value}</h4>
       <div className="flex items-center gap-2">
         <span className={cn(
           "flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded",
@@ -2069,7 +2281,7 @@ function KPICard({ label, value, trend, icon, color }: { label: string; value: s
 
 function StatCard({ label, value, subValue, color }: { label: string; value: string; subValue: string; color: string }) {
   return (
-    <div className="bg-[#0e1629] border border-white/5 rounded-2xl p-6">
+    <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">{label}</p>
       <h4 className={cn("text-xl font-bold mb-1 font-mono", {
         'text-emerald-500': color === 'emerald',
