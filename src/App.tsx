@@ -173,21 +173,19 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Auth Logic
-  const handleLogin = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const user = formData.get('user') as string;
     const pass = formData.get('pass') as string;
 
-    // For the main login, we can still use a simple check or an API
-    // But for "no trace of passwords", let's assume we have a generic login for now
-    // or use the same verification logic if needed.
-    if ((user === 'directrice' && pass === 'Pharma2026') || (user === 'assistant' && pass === 'Docteur2026')) {
+    const result = await api.login(user, pass);
+    if (result.success) {
       setIsLoggedIn(true);
       setLoginError('');
       addLog('CREATE', 'AUTH', user, `Connexion utilisateur: ${user}`);
     } else {
-      setLoginError('Identifiants incorrects');
+      setLoginError(result.message || 'Identifiants incorrects');
     }
   };
 

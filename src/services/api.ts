@@ -16,6 +16,19 @@ export const api = {
     }
   },
 
+  async login(user: string, pass: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user, pass }),
+      });
+      return res.json();
+    } catch (error) {
+      return { success: false, message: "Erreur de connexion au serveur" };
+    }
+  },
+
   async getTransactions(): Promise<Transaction[]> {
     const res = await fetch(`${API_BASE}/transactions`);
     const data = await res.json();

@@ -25,14 +25,42 @@ if (!supabaseUrl || !supabaseKey) {
 }
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+import bcrypt from "bcryptjs";
+
+// Hashed passwords (generated for 'password2026', 'Pharma2026', 'Docteur2026', 'Admin2026')
+const HASHES = {
+  SAISIE: "$2b$10$znds1yEmZsYFYMq0TqGIiuk9XQdykiorpdOQMyk7pZNpX12J4/5Xe", // password2026
+  PARAMETRES: "$2b$10$znds1yEmZsYFYMq0TqGIiuk9XQdykiorpdOQMyk7pZNpX12J4/5Xe", // password2026
+  DIRECTRICE: "$2b$10$NWam7wOfFFryihfgB3v.f.55Mn5RsyNp3ZEFzcG2Uy7edOu/.nb2a", // Pharma2026
+  ASSISTANT: "$2b$10$FZczvPVWw.dXmh.MK6eNseAbFhLiA09zmxrScyeJh5ufxFoWVdX3a" // Docteur2026
+};
+
 // Password Verification Endpoints
-app.post("/api/auth/verify", (req, res) => {
+app.post("/api/auth/verify", async (req, res) => {
   const { password, target } = req.body;
-  const correctPassword = target === 'saisie' 
-    ? (process.env.SAISIE_PASSWORD || 'Pharma2026') 
-    : (process.env.PARAMETRES_PASSWORD || 'Admin2026');
+  if (!password) return res.status(400).json({ success: false, message: "Mot de passe requis" });
+
+  const hash = target === 'saisie' ? HASHES.SAISIE : HASHES.PARAMETRES;
+  const isMatch = await bcrypt.compare(password, hash);
   
-  if (password && password === correctPassword) {
+  if (isMatch) {
+    res.json({ success: true });
+  } else {
+    res.status(401).json({ success: false, message: "Mot de passe incorrect" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  const { user, pass } = req.body;
+  if (!user || !pass) return res.status(400).json({ success: false, message: "Identifiants requis" });
+
+  let hash = "";
+  if (user === 'directrice') hash = HASHES.DIRECTRICE;
+  else if (user === 'assistant') hash = HASHES.ASSISTANT;
+  else return res.status(401).json({ success: false, message: "Utilisateur inconnu" });
+
+  const isMatch = await bcrypt.compare(pass, hash);
+  if (isMatch) {
     res.json({ success: true });
   } else {
     res.status(401).json({ success: false, message: "Mot de passe incorrect" });
