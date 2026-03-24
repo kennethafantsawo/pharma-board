@@ -1,0 +1,5 @@
+{
+  "name": "Pharmacie de l'Aéroport - Gestion Pro",
+  "description": "Système complet de gestion officinale avec suivi des recettes, fournisseurs, assurances et implants. Simulation de données sur 1 an et logs d'audit.",
+  "requestFramePermissions": []
+}
