@@ -6,7 +6,6 @@ console.log("Starting server.ts...");
 import { createClient } from "@supabase/supabase-js";
 import path from "path";
 import { fileURLToPath } from "url";
-import { createServer as createViteServer } from "vite";
 import bcryptjs from "bcryptjs";
 
 dotenv.config();
@@ -30,12 +29,17 @@ app.get("/api/health", (req, res) => {
 });
 
 // Supabase Setup
-const supabaseUrl = process.env.SUPABASE_URL || "";
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
-if (!supabaseUrl || !supabaseKey) {
-  console.error("Missing SUPABASE_URL or SUPABASE_ANON_KEY/SUPABASE_SERVICE_ROLE_KEY");
+function getSupabase() {
+  const supabaseUrl = process.env.SUPABASE_URL || "";
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
+  
+  if (!supabaseUrl || !supabaseKey) {
+    console.error("Missing SUPABASE_URL or SUPABASE_ANON_KEY/SUPABASE_SERVICE_ROLE_KEY");
+    throw new Error("Configuration Supabase manquante");
+  }
+  
+  return createClient(supabaseUrl, supabaseKey);
 }
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Hashed passwords (generated for 'password2026', 'Pharma2026', 'Docteur2026', 'Admin2026')
 const HASHES = {
@@ -69,11 +73,12 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(400).json({ success: false, message: "Identifiants requis" });
     }
 
+    const normalizedUser = user.toLowerCase().trim();
     let hash = "";
-    if (user === 'directrice') hash = HASHES.DIRECTRICE;
-    else if (user === 'assistant') hash = HASHES.ASSISTANT;
+    if (normalizedUser === 'directrice') hash = HASHES.DIRECTRICE;
+    else if (normalizedUser === 'assistant') hash = HASHES.ASSISTANT;
     else {
-      console.log(`Unknown user: ${user}`);
+      console.log(`Unknown user: ${normalizedUser}`);
       return res.status(401).json({ success: false, message: "Utilisateur inconnu" });
     }
 
@@ -93,62 +98,103 @@ app.post("/api/auth/login", async (req, res) => {
 
 // API Routes for Transactions
 app.get("/api/transactions", async (req, res) => {
-  const { data, error } = await supabase.from("transactions").select("*").order("date", { ascending: false });
-  if (error) return res.status(500).json(error);
-  res.json(data);
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from("transactions").select("*").order("date", { ascending: false });
+    if (error) return res.status(500).json(error);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: "Supabase not configured" });
+  }
 });
 
 app.post("/api/transactions", async (req, res) => {
-  const { data, error } = await supabase.from("transactions").insert(req.body).select();
-  if (error) return res.status(500).json(error);
-  if (!data || data.length === 0) return res.status(500).json({ error: "Failed to create transaction" });
-  res.json(data[0]);
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from("transactions").insert(req.body).select();
+    if (error) return res.status(500).json(error);
+    if (!data || data.length === 0) return res.status(500).json({ error: "Failed to create transaction" });
+    res.json(data[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Supabase not configured" });
+  }
 });
 
 app.patch("/api/transactions/:id", async (req, res) => {
-  const { data, error } = await supabase.from("transactions").update(req.body).eq("id", req.params.id).select();
-  if (error) return res.status(500).json(error);
-  if (!data || data.length === 0) return res.status(500).json({ error: "Failed to update transaction" });
-  res.json(data[0]);
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from("transactions").update(req.body).eq("id", req.params.id).select();
+    if (error) return res.status(500).json(error);
+    if (!data || data.length === 0) return res.status(500).json({ error: "Failed to update transaction" });
+    res.json(data[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Supabase not configured" });
+  }
 });
 
 app.delete("/api/transactions/:id", async (req, res) => {
-  const { error } = await supabase.from("transactions").delete().eq("id", req.params.id);
-  if (error) return res.status(500).json(error);
-  res.status(204).send();
+  try {
+    const supabase = getSupabase();
+    const { error } = await supabase.from("transactions").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json(error);
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: "Supabase not configured" });
+  }
 });
 
 // API Routes for Entities
 app.get("/api/entities", async (req, res) => {
-  const { data, error } = await supabase.from("entities").select("*");
-  if (error) return res.status(500).json(error);
-  res.json(data);
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from("entities").select("*");
+    if (error) return res.status(500).json(error);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: "Supabase not configured" });
+  }
 });
 
 app.post("/api/entities", async (req, res) => {
-  const { data, error } = await supabase.from("entities").upsert(req.body).select();
-  if (error) return res.status(500).json(error);
-  if (!data || data.length === 0) return res.status(500).json({ error: "Failed to save entity" });
-  res.json(data[0]);
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from("entities").upsert(req.body).select();
+    if (error) return res.status(500).json(error);
+    if (!data || data.length === 0) return res.status(500).json({ error: "Failed to save entity" });
+    res.json(data[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Supabase not configured" });
+  }
 });
 
 // API Routes for Logs
 app.get("/api/logs", async (req, res) => {
-  const { data, error } = await supabase.from("audit_logs").select("*").order("timestamp", { ascending: false }).limit(100);
-  if (error) return res.status(500).json(error);
-  res.json(data);
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from("audit_logs").select("*").order("timestamp", { ascending: false }).limit(100);
+    if (error) return res.status(500).json(error);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: "Supabase not configured" });
+  }
 });
 
 app.post("/api/logs", async (req, res) => {
-  const { data, error } = await supabase.from("audit_logs").insert(req.body).select();
-  if (error) return res.status(500).json(error);
-  if (!data || data.length === 0) return res.status(500).json({ error: "Failed to add log" });
-  res.json(data[0]);
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from("audit_logs").insert(req.body).select();
+    if (error) return res.status(500).json(error);
+    if (!data || data.length === 0) return res.status(500).json({ error: "Failed to add log" });
+    res.json(data[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Supabase not configured" });
+  }
 });
 
 async function startServer() {
   try {
     if (process.env.NODE_ENV !== "production") {
+      const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: "spa",
