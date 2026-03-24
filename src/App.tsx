@@ -773,7 +773,8 @@ export default function App() {
       setEditingEntity(null);
       (e.target as HTMLFormElement).reset();
     } catch (error) {
-      toast.error("Erreur lors de l'enregistrement");
+      console.error("Erreur détaillée lors de l'enregistrement du partenaire:", error);
+      toast.error("Erreur lors de l'enregistrement: " + (error instanceof Error ? error.message : String(error)));
     }
   };
 
@@ -1633,7 +1634,8 @@ export default function App() {
                       toast.success('Donnée enregistrée');
                       (e.target as HTMLFormElement).reset();
                     } catch (error) {
-                      toast.error("Erreur lors de l'enregistrement");
+                      console.error("Erreur détaillée lors de l'enregistrement:", error);
+                      toast.error("Erreur lors de l'enregistrement: " + (error instanceof Error ? error.message : String(error)));
                     }
                   }}>
                     <div>

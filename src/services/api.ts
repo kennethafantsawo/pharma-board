@@ -42,9 +42,13 @@ export const api = {
   },
 
   async createTransaction(transaction: Partial<Transaction>): Promise<Transaction> {
+    const payload = { ...transaction };
+    if (payload.date instanceof Date) {
+      payload.date = payload.date.toISOString() as any;
+    }
     const { data, error } = await supabase
       .from('transactions')
-      .insert([transaction])
+      .insert([payload])
       .select()
       .single();
       
@@ -53,9 +57,16 @@ export const api = {
   },
 
   async createTransactions(transactions: Partial<Transaction>[]): Promise<Transaction[]> {
+    const payload = transactions.map(t => {
+      const copy = { ...t };
+      if (copy.date instanceof Date) {
+        copy.date = copy.date.toISOString() as any;
+      }
+      return copy;
+    });
     const { data, error } = await supabase
       .from('transactions')
-      .insert(transactions)
+      .insert(payload)
       .select();
       
     if (error) throw new Error(error.message);
@@ -63,9 +74,13 @@ export const api = {
   },
 
   async updateTransaction(id: string, updates: Partial<Transaction>): Promise<Transaction> {
+    const payload = { ...updates };
+    if (payload.date instanceof Date) {
+      payload.date = payload.date.toISOString() as any;
+    }
     const { data, error } = await supabase
       .from('transactions')
-      .update(updates)
+      .update(payload)
       .eq('id', id)
       .select()
       .single();
