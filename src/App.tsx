@@ -961,7 +961,7 @@ export default function App() {
                       onChange={(e) => setPasswordInput(e.target.value)}
                       onKeyDown={async (e) => {
                         if (e.key === 'Enter') {
-                          const result = await api.verifyPassword(passwordInput, passwordModal.target);
+                          const result = await api.verifyPassword(passwordInput.trim(), passwordModal.target);
                           if (result.success) {
                             passwordModal.onUnlock();
                             setPasswordModal(null);
@@ -984,7 +984,7 @@ export default function App() {
                       </button>
                       <button 
                         onClick={async () => {
-                          const result = await api.verifyPassword(passwordInput, passwordModal.target);
+                          const result = await api.verifyPassword(passwordInput.trim(), passwordModal.target);
                           if (result.success) {
                             passwordModal.onUnlock();
                             setPasswordModal(null);
@@ -1302,30 +1302,36 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="bg-[#0e1629] border border-white/5 rounded-2xl overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="bg-white/2">
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
-                          {Object.keys(fournisseursPivotData[0]).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
-                            <th key={month} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">{month}</th>
-                          ))}
-                          <th className="px-6 py-4 text-[10px] font-bold text-emerald-500 uppercase tracking-wider">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5">
-                        {fournisseursPivotData.map((row, i) => (
-                          <tr key={i} className="hover:bg-white/2 transition-colors">
-                            <td className="px-6 py-4 text-sm font-bold text-white">{row.name}</td>
-                            {Object.keys(row).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
-                              <td key={month} className="px-6 py-4 text-sm font-mono text-slate-400">{formatCurrency(row[month])}</td>
+                  {fournisseursPivotData.length > 0 ? (
+                    <div className="bg-[#0e1629] border border-white/5 rounded-2xl overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="bg-white/2">
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
+                            {Object.keys(fournisseursPivotData[0]).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
+                              <th key={month} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">{month}</th>
                             ))}
-                            <td className="px-6 py-4 text-sm font-mono font-bold text-emerald-500">{formatCurrency(row.total)}</td>
+                            <th className="px-6 py-4 text-[10px] font-bold text-emerald-500 uppercase tracking-wider">Total</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {fournisseursPivotData.map((row, i) => (
+                            <tr key={i} className="hover:bg-white/2 transition-colors">
+                              <td className="px-6 py-4 text-sm font-bold text-white">{row.name}</td>
+                              {Object.keys(row).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
+                                <td key={month} className="px-6 py-4 text-sm font-mono text-slate-400">{formatCurrency(row[month])}</td>
+                              ))}
+                              <td className="px-6 py-4 text-sm font-mono font-bold text-emerald-500">{formatCurrency(row.total)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="bg-[#0e1629] border border-white/5 rounded-2xl p-8 text-center">
+                      <p className="text-slate-400 text-sm">Aucun fournisseur enregistré ou aucune donnée disponible.</p>
+                    </div>
+                  )}
                 </div>
               )}
 

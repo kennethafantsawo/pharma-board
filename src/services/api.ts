@@ -19,6 +19,7 @@ export const api = {
   async getTransactions(): Promise<Transaction[]> {
     const res = await fetch(`${API_BASE}/transactions`);
     const data = await res.json();
+    if (!Array.isArray(data)) return [];
     return data.map((t: any) => ({ ...t, date: new Date(t.date) }));
   },
 
@@ -29,6 +30,7 @@ export const api = {
       body: JSON.stringify(transaction),
     });
     const t = await res.json();
+    if (!t) throw new Error("Failed to create transaction");
     return { ...t, date: new Date(t.date) };
   },
 
@@ -39,6 +41,7 @@ export const api = {
       body: JSON.stringify(updates),
     });
     const t = await res.json();
+    if (!t) throw new Error("Failed to update transaction");
     return { ...t, date: new Date(t.date) };
   },
 
@@ -48,7 +51,8 @@ export const api = {
 
   async getEntities(): Promise<Entity[]> {
     const res = await fetch(`${API_BASE}/entities`);
-    return res.json();
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
   },
 
   async saveEntity(entity: Partial<Entity>): Promise<Entity> {
@@ -57,12 +61,15 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entity),
     });
-    return res.json();
+    const data = await res.json();
+    if (!data) throw new Error("Failed to save entity");
+    return data;
   },
 
   async getLogs(): Promise<AuditLog[]> {
     const res = await fetch(`${API_BASE}/logs`);
     const data = await res.json();
+    if (!Array.isArray(data)) return [];
     return data.map((l: any) => ({ ...l, timestamp: new Date(l.timestamp) }));
   },
 
@@ -73,6 +80,7 @@ export const api = {
       body: JSON.stringify(log),
     });
     const l = await res.json();
+    if (!l) throw new Error("Failed to add log");
     return { ...l, timestamp: new Date(l.timestamp) };
   },
 };

@@ -28,7 +28,9 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // Password Verification Endpoints
 app.post("/api/auth/verify", (req, res) => {
   const { password, target } = req.body;
-  const correctPassword = target === 'saisie' ? process.env.SAISIE_PASSWORD : process.env.PARAMETRES_PASSWORD;
+  const correctPassword = target === 'saisie' 
+    ? (process.env.SAISIE_PASSWORD || 'Pharma2026') 
+    : (process.env.PARAMETRES_PASSWORD || 'Admin2026');
   
   if (password && password === correctPassword) {
     res.json({ success: true });
@@ -47,12 +49,14 @@ app.get("/api/transactions", async (req, res) => {
 app.post("/api/transactions", async (req, res) => {
   const { data, error } = await supabase.from("transactions").insert(req.body).select();
   if (error) return res.status(500).json(error);
+  if (!data || data.length === 0) return res.status(500).json({ error: "Failed to create transaction" });
   res.json(data[0]);
 });
 
 app.patch("/api/transactions/:id", async (req, res) => {
   const { data, error } = await supabase.from("transactions").update(req.body).eq("id", req.params.id).select();
   if (error) return res.status(500).json(error);
+  if (!data || data.length === 0) return res.status(500).json({ error: "Failed to update transaction" });
   res.json(data[0]);
 });
 
@@ -72,6 +76,7 @@ app.get("/api/entities", async (req, res) => {
 app.post("/api/entities", async (req, res) => {
   const { data, error } = await supabase.from("entities").upsert(req.body).select();
   if (error) return res.status(500).json(error);
+  if (!data || data.length === 0) return res.status(500).json({ error: "Failed to save entity" });
   res.json(data[0]);
 });
 
@@ -85,6 +90,7 @@ app.get("/api/logs", async (req, res) => {
 app.post("/api/logs", async (req, res) => {
   const { data, error } = await supabase.from("audit_logs").insert(req.body).select();
   if (error) return res.status(500).json(error);
+  if (!data || data.length === 0) return res.status(500).json({ error: "Failed to add log" });
   res.json(data[0]);
 });
 
