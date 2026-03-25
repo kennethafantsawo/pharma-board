@@ -178,6 +178,15 @@ export const api = {
     }
   },
 
+  async deleteEntity(id: string): Promise<void> {
+    try {
+      await deleteDoc(doc(db, 'entities', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `entities/${id}`);
+      throw error;
+    }
+  },
+
   async getLogs(): Promise<AuditLog[]> {
     try {
       const q = query(collection(db, 'audit_logs'), orderBy('timestamp', 'desc'), limit(100));

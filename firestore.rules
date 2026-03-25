@@ -156,7 +156,7 @@ service cloud.firestore {
 
     match /audit_logs/{logId} {
       allow read: if isAdmin() || isViewer();
-      allow create: if isAdmin() && isValidAuditLog(request.resource.data);
+      allow create: if isAuthenticated() && isValidAuditLog(request.resource.data);
       allow update: if false; // Logs should be immutable
       allow delete: if false; // Logs should not be deleted
     }

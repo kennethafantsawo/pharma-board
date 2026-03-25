@@ -245,11 +245,11 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
+      addLog('CREATE', 'AUTH', 'logout', 'Déconnexion utilisateur');
       await signOut(auth);
       setIsLoggedIn(false);
       setUserRole(null);
       setActiveTab('accueil');
-      addLog('CREATE', 'AUTH', 'logout', 'Déconnexion utilisateur');
       toast.success('Déconnexion réussie');
     } catch (error) {
       console.error("Logout error:", error);
@@ -512,13 +512,12 @@ export default function App() {
       return;
     }
 
-    const headers = ['Date', 'Assurance', 'Type', 'Montant', 'Bénéficiaires', 'Motif'];
+    const headers = ['Date', 'Assurance', 'Type', 'Montant', 'Motif'];
     const rows = assuranceTransactions.map(t => [
       format(t.date, 'dd/MM/yyyy'),
       entities.find(e => e.id === t.entityId)?.name || 'Inconnu',
       t.type === 'CONSOMMATION_ASSURANCE' ? 'Consommation' : 'Rejet',
       t.amount,
-      t.beneficiaires || '',
       t.reason || ''
     ]);
 
@@ -562,9 +561,7 @@ export default function App() {
         description: row.Description || 'Import Excel',
         entityId: row.EntityId || undefined,
         status: row.Statut || undefined,
-        reason: row.Raison || undefined,
-        dossiers: row.Dossiers ? Number(row.Dossiers) : undefined,
-        beneficiaires: row.Beneficiaires ? Number(row.Beneficiaires) : undefined
+        reason: row.Raison || undefined
       }));
 
       try {
@@ -642,23 +639,23 @@ export default function App() {
     // Sheet 3: DCSSA
     const wsDCSSA = XLSX.utils.json_to_sheet([
       { Instructions: "Consommation DCSSA et Koundjouré. Types: CONSOMMATION_DCSSA, CONSOMMATION_KOUNDJOURE" },
-      { Date: '2026-03-24', Type: 'CONSOMMATION_DCSSA', Montant: 1500000, Dossiers: 12, Description: 'Consommation mensuelle' }
+      { Date: '2026-03-24', Type: 'CONSOMMATION_DCSSA', Montant: 1500000, Description: 'Consommation mensuelle' }
     ]);
     wsDCSSA['A1'].s = instructionStyle;
-    wsDCSSA['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
-    ['A2', 'B2', 'C2', 'D2'].forEach(addr => { if(wsDCSSA[addr]) wsDCSSA[addr].s = headerStyle; });
-    wsDCSSA['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 15 }, { wch: 10 }];
+    wsDCSSA['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }];
+    ['A2', 'B2', 'C2'].forEach(addr => { if(wsDCSSA[addr]) wsDCSSA[addr].s = headerStyle; });
+    wsDCSSA['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 15 }];
     XLSX.utils.book_append_sheet(wb, wsDCSSA, "DCSSA");
 
     // Sheet 4: Assurances
     const wsAssurances = XLSX.utils.json_to_sheet([
       { Instructions: "Consommation et Rejets assurances. Types: CONSOMMATION_ASSURANCE, REJET_ASSURANCE. EntityId: a1 (CNSS), a2 (NSIA), a3 (SUNU), a4 (GTA)" },
-      { Date: '2026-03-24', Type: 'CONSOMMATION_ASSURANCE', Montant: 300000, Beneficiaires: 8, EntityId: 'a1' }
+      { Date: '2026-03-24', Type: 'CONSOMMATION_ASSURANCE', Montant: 300000, EntityId: 'a1' }
     ]);
     wsAssurances['A1'].s = instructionStyle;
-    wsAssurances['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }];
-    ['A2', 'B2', 'C2', 'D2', 'E2'].forEach(addr => { if(wsAssurances[addr]) wsAssurances[addr].s = headerStyle; });
-    wsAssurances['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 10 }];
+    wsAssurances['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
+    ['A2', 'B2', 'C2', 'D2'].forEach(addr => { if(wsAssurances[addr]) wsAssurances[addr].s = headerStyle; });
+    wsAssurances['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 15 }, { wch: 10 }];
     XLSX.utils.book_append_sheet(wb, wsAssurances, "Assurances");
 
     XLSX.writeFile(wb, "template_gestion_pharmacie_pro.xlsx");
@@ -795,6 +792,26 @@ export default function App() {
           setTransactions(prev => prev.filter(t => t.id !== id));
           addLog('DELETE', 'TRANSACTION', id, `Suppression transaction ${id}`, tx);
           toast.success('Transaction supprimée');
+          setConfirmDialog(null);
+        } catch (error) {
+          toast.error("Erreur lors de la suppression");
+        }
+      }
+    });
+  };
+
+  const handleDeleteEntity = (id: string) => {
+    const entity = entities.find(e => e.id === id);
+    setConfirmDialog({
+      open: true,
+      title: 'Supprimer Partenaire',
+      message: `Voulez-vous vraiment supprimer ${entity?.name} ? Cette action est irréversible.`,
+      onConfirm: async () => {
+        try {
+          await api.deleteEntity(id);
+          setEntities(prev => prev.filter(e => e.id !== id));
+          addLog('DELETE', 'ENTITY', id, `Suppression partenaire ${entity?.name}`, entity);
+          toast.success('Partenaire supprimé');
           setConfirmDialog(null);
         } catch (error) {
           toast.error("Erreur lors de la suppression");
@@ -1501,12 +1518,20 @@ export default function App() {
                           </td>
                           {userRole !== 'directrice' && (
                             <td className="px-6 py-4 text-right">
-                              <button 
-                                onClick={() => setEditingTransaction(t)}
-                                className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
-                              >
-                                <Edit2 size={16} />
-                              </button>
+                              <div className="flex items-center justify-end gap-2">
+                                <button 
+                                  onClick={() => setEditingTransaction(t)}
+                                  className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
+                                >
+                                  <Edit2 size={16} />
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteTransaction(t.id)}
+                                  className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
                             </td>
                           )}
                         </tr>
@@ -1564,8 +1589,10 @@ export default function App() {
                   <thead>
                     <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Dossiers</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                      {userRole !== 'directrice' && (
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-white/5">
@@ -1575,8 +1602,25 @@ export default function App() {
                       .map((t, i) => (
                       <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                         <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
-                        <td className="px-6 py-4 text-sm text-slate-900 dark:text-white font-bold">{t.dossiers}</td>
                         <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
+                        {userRole !== 'directrice' && (
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button 
+                                onClick={() => setEditingTransaction(t)}
+                                className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
+                              >
+                                <Edit2 size={16} />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteTransaction(t.id)}
+                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -1601,6 +1645,9 @@ export default function App() {
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                      {userRole !== 'directrice' && (
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-white/5">
@@ -1609,6 +1656,24 @@ export default function App() {
                         <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
                         <td className="px-6 py-4 text-sm text-slate-900 dark:text-white">{t.description}</td>
                         <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
+                        {userRole !== 'directrice' && (
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button 
+                                onClick={() => setEditingTransaction(t)}
+                                className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
+                              >
+                                <Edit2 size={16} />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteTransaction(t.id)}
+                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -1689,6 +1754,9 @@ export default function App() {
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Motif</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                        {userRole !== 'directrice' && (
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-white/5">
@@ -1698,6 +1766,24 @@ export default function App() {
                           <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.reason}</td>
                           <td className="px-6 py-4 text-sm text-slate-500">{format(t.date, 'dd/MM/yyyy')}</td>
                           <td className="px-6 py-4 text-sm font-mono text-red-500 font-bold">{formatCurrency(t.amount)}</td>
+                          {userRole !== 'directrice' && (
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button 
+                                  onClick={() => setEditingTransaction(t)}
+                                  className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
+                                >
+                                  <Edit2 size={16} />
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteTransaction(t.id)}
+                                  className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -1707,26 +1793,44 @@ export default function App() {
 
               {entities.filter(e => e.type === 'ASSURANCE').map(a => a.name).includes(subTab) && (
                 <div className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <StatCard label="Total Facturé" value={formatCurrency(transactions.filter(t => t.entityId === entities.find(e => e.name === subTab)?.id && t.type === 'CONSOMMATION_ASSURANCE').reduce((s, t) => s + t.amount, 0))} subValue="Toutes périodes" color="blue" />
                     <StatCard label="Total Rejets" value={formatCurrency(transactions.filter(t => t.entityId === entities.find(e => e.name === subTab)?.id && t.type === 'REJET_ASSURANCE').reduce((s, t) => s + t.amount, 0))} subValue="Pertes sèches" color="red" />
-                    <StatCard label="Nombre de Bénéficiaires" value={transactions.filter(t => t.entityId === entities.find(e => e.name === subTab)?.id && t.type === 'CONSOMMATION_ASSURANCE').reduce((s, t) => s + (t.beneficiaires || 0), 0).toString()} subValue="Patients servis" color="emerald" />
                   </div>
                   <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Bénéficiaires</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                          {userRole !== 'directrice' && (
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-white/5">
                         {transactions.filter(t => t.entityId === entities.find(e => e.name === subTab)?.id && t.type === 'CONSOMMATION_ASSURANCE').slice(0, 15).map((t, i) => (
                           <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                             <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
-                            <td className="px-6 py-4 text-sm text-slate-900 dark:text-white font-bold">{t.beneficiaires}</td>
                             <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
+                            {userRole !== 'directrice' && (
+                              <td className="px-6 py-4 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button 
+                                    onClick={() => setEditingTransaction(t)}
+                                    className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
+                                  >
+                                    <Edit2 size={16} />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteTransaction(t.id)}
+                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
@@ -1879,25 +1983,6 @@ export default function App() {
                               <option value="CONSOMMATION_ASSURANCE">Assurance</option>
                             </select>
                           </div>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Dossiers</label>
-                              <input name="dossiers" type="number" className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" placeholder="Nb" />
-                            </div>
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Bénéficiaires</label>
-                              <input name="beneficiaires" type="number" className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" placeholder="Nb" />
-                            </div>
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Entité (Assurance/Fournisseur)</label>
-                            <select name="entityId" className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
-                              <option value="">Sélectionner...</option>
-                              {entities.map(e => (
-                                <option key={e.id} value={e.id}>{e.name} ({e.type})</option>
-                              ))}
-                            </select>
-                          </div>
                         </>
                       )}
 
@@ -2033,8 +2118,6 @@ export default function App() {
                               <div className="text-sm text-slate-900 dark:text-white font-medium">
                                 {t.entityId ? entities.find(e => e.id === t.entityId)?.name : t.description}
                               </div>
-                              {t.dossiers && <div className="text-[10px] text-slate-500">{t.dossiers} dossiers</div>}
-                              {t.beneficiaires && <div className="text-[10px] text-slate-500">{t.beneficiaires} bénéficiaires</div>}
                               {t.reason && <div className="text-[10px] text-red-400/70 italic">{t.reason}</div>}
                             </td>
                             <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white font-bold text-right">
@@ -2101,7 +2184,10 @@ export default function App() {
                         <p className="text-sm font-bold text-slate-900 dark:text-white">{e.name}</p>
                         <p className="text-[10px] text-slate-500 uppercase">{e.type}</p>
                       </div>
-                      <button className="text-slate-500 hover:text-red-500 transition-colors">
+                      <button 
+                        onClick={() => handleDeleteEntity(e.id)}
+                        className="text-slate-500 hover:text-red-500 transition-colors"
+                      >
                         <Trash2 size={14} />
                       </button>
                     </div>
