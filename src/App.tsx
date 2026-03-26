@@ -103,10 +103,10 @@ export default function App() {
 
   useEffect(() => {
     if (darkMode) {
-      document.documentElement.classList.add('dark');
+      document.body.classList.add('dark');
       localStorage.setItem('theme', 'dark');
     } else {
-      document.documentElement.classList.remove('dark');
+      document.body.classList.remove('dark');
       localStorage.setItem('theme', 'light');
     }
   }, [darkMode]);
@@ -1323,8 +1323,8 @@ export default function App() {
                       {transactions
                         .filter(t => t.type === 'CONSOMMATION_IMPLANT')
                         .slice(0, 5)
-                        .map((t, i) => (
-                        <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                        .map((t) => (
+                        <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                           <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
                           <td className="px-6 py-4 text-sm text-slate-900 dark:text-white">{t.description}</td>
                           <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold text-right">{formatCurrency(t.amount)}</td>
@@ -1346,10 +1346,14 @@ export default function App() {
           {activeTab === 'recettes' && (
             <div className="space-y-8">
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                <StatCard label="Recette Brute Encaissée" value={formatCurrency(recettesData.COMPTANTS + recettesData.PART_ASSUREE)} subValue={`Comptants: ${formatCurrency(recettesData.COMPTANTS)}`} color="emerald" />
-                <StatCard label="Tiers Payant" value={formatCurrency(recettesData.TIERS_PAYANT)} subValue={`En attente de remboursement`} color="blue" />
-                <StatCard label="Crédit Patients" value={formatCurrency(recettesData.CREDIT)} subValue={`Encours clients`} color="amber" />
-                <StatCard label="Remises Autorisées" value={formatCurrency(recettesData.REMISE)} subValue={`Impact sur marge`} color="red" />
+                <StatCard label="Total Espèce" value={formatCurrency(recettesData.COMPTANTS)} subValue={`Vente au comptant`} color="emerald" />
+                <StatCard label="Total Vente au Comptant" value={formatCurrency(recettesData.COMPTANTS)} subValue={`Vente au comptant`} color="emerald" />
+                <StatCard label="Part Assurée Tiers Payant" value={formatCurrency(recettesData.PART_ASSUREE)} subValue={`Part assurée`} color="blue" />
+                <StatCard label="Total Vente Tiers Payant" value={formatCurrency(recettesData.TIERS_PAYANT)} subValue={`Tiers payant`} color="blue" />
+                <StatCard label="Part Assurance à Réglée" value={formatCurrency(recettesData.PART_ASSUREE)} subValue={`À régler`} color="amber" />
+                <StatCard label="Total Vente à Crédit" value={formatCurrency(recettesData.CREDIT)} subValue={`Crédit`} color="amber" />
+                <StatCard label="Totale Remise" value={formatCurrency(recettesData.REMISE)} subValue={`Remise`} color="red" />
+                <StatCard label="Totale Toutes Ventes Confondu" value={formatCurrency(recettesData.total)} subValue={`Total global`} color="emerald" />
               </div>
 
               <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
@@ -1394,8 +1398,8 @@ export default function App() {
                       { label: 'Tiers Payant', val: recettesData.TIERS_PAYANT, color: 'text-blue-500' },
                       { label: 'Crédit Patients', val: recettesData.CREDIT, color: 'text-amber-500' },
                       { label: 'Remises Autorisées', val: recettesData.REMISE, color: 'text-red-500' },
-                    ].map((row, i) => (
-                      <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                    ].map((row) => (
+                      <tr key={row.label} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                         <td className="px-6 py-4 text-sm font-medium text-slate-900 dark:text-white">{row.label}</td>
                         <td className={cn("px-6 py-4 text-sm font-mono font-bold", row.color)}>{formatCurrency(row.val)}</td>
                         <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{((row.val / recettesData.total) * 100).toFixed(1)}%</td>
@@ -1416,7 +1420,7 @@ export default function App() {
           {activeTab === 'fournisseurs' && (
             <div className="space-y-8">
               <div className="flex gap-4 border-b border-slate-200 dark:border-white/5">
-                {['COMMANDES', 'FACTURES', 'RETOURS'].map(tab => (
+                {['GLOBAL', ...entities.filter(e => e.type === 'FOURNISSEUR').map(e => e.name)].map(tab => (
                   <button
                     key={tab}
                     onClick={() => setSubTab(tab)}
@@ -1430,10 +1434,10 @@ export default function App() {
                 ))}
               </div>
 
-              {subTab === 'COMMANDES' && (
+              {subTab === 'GLOBAL' && (
                 <div className="space-y-8">
                   <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Évolution des Commandes</h3>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Évolution des Commandes (Global)</h3>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={fournisseursChartData}>
@@ -1468,8 +1472,8 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                          {fournisseursPivotData.map((row, i) => (
-                            <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                          {fournisseursPivotData.map((row) => (
+                            <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                               <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{row.name}</td>
                               {Object.keys(row).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
                                 <td key={month} className="px-6 py-4 text-sm font-mono text-slate-500 dark:text-slate-400">{formatCurrency(row[month])}</td>
@@ -1488,6 +1492,31 @@ export default function App() {
                 </div>
               )}
 
+              {subTab !== 'GLOBAL' && (
+                <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Commandes: {subTab}</h3>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={fournisseursChartData.filter(d => d.name === subTab)}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
+                        <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
+                        <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `${v/1000}k`} />
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                            border: darkMode ? '1px solid #1e293b' : '1px solid #e2e8f0', 
+                            borderRadius: '12px',
+                            color: darkMode ? '#f8fafc' : '#0f172a'
+                          }} 
+                          itemStyle={{ color: darkMode ? '#f8fafc' : '#0f172a' }}
+                        />
+                        <Bar dataKey="commandes" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Commandes" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
               {subTab === 'FACTURES' && (
                 <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
                   <table className="w-full text-left">
@@ -1503,8 +1532,8 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                      {transactions.filter(t => t.type === 'FACTURE').slice(0, 10).map((t, i) => (
-                        <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                      {transactions.filter(t => t.type === 'FACTURE').slice(0, 10).map((t) => (
+                        <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                           <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
                           <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
                           <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
@@ -1599,8 +1628,8 @@ export default function App() {
                     {transactions
                       .filter(t => t.type === (subTab === 'DCSSA' ? 'CONSOMMATION_DCSSA' : 'CONSOMMATION_KOUNDJOURE'))
                       .slice(0, 10)
-                      .map((t, i) => (
-                      <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                      .map((t) => (
+                      <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                         <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
                         <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
                         {userRole !== 'directrice' && (
@@ -1651,8 +1680,8 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                    {transactions.filter(t => t.type === 'CONSOMMATION_IMPLANT').slice(0, 15).map((t, i) => (
-                      <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                    {transactions.filter(t => t.type === 'CONSOMMATION_IMPLANT').slice(0, 15).map((t) => (
+                      <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                         <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
                         <td className="px-6 py-4 text-sm text-slate-900 dark:text-white">{t.description}</td>
                         <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
@@ -1760,8 +1789,8 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                      {transactions.filter(t => t.type === 'REJET_ASSURANCE').slice(0, 15).map((t, i) => (
-                        <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                      {transactions.filter(t => t.type === 'REJET_ASSURANCE').slice(0, 15).map((t) => (
+                        <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                           <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
                           <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.reason}</td>
                           <td className="px-6 py-4 text-sm text-slate-500">{format(t.date, 'dd/MM/yyyy')}</td>
@@ -1809,8 +1838,8 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                        {transactions.filter(t => t.entityId === entities.find(e => e.name === subTab)?.id && t.type === 'CONSOMMATION_ASSURANCE').slice(0, 15).map((t, i) => (
-                          <tr key={i} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                        {transactions.filter(t => t.entityId === entities.find(e => e.name === subTab)?.id && t.type === 'CONSOMMATION_ASSURANCE').slice(0, 15).map((t) => (
+                          <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                             <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
                             <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
                             {userRole !== 'directrice' && (
