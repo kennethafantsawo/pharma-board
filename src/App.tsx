@@ -39,7 +39,8 @@ import {
   Database,
   Upload,
   Sun,
-  Moon
+  Moon,
+  Menu
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -142,6 +143,7 @@ export default function App() {
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [selectedPeriod, setSelectedPeriod] = useState<Period>('MOIS');
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [userRole, setUserRole] = useState<'directrice' | 'assistant' | null>(null);
@@ -162,6 +164,7 @@ export default function App() {
   const [saisieTypeFilter, setSaisieTypeFilter] = useState<string>('TOUS');
   const [saisieStartDate, setSaisieStartDate] = useState<string>('');
   const [saisieEndDate, setSaisieEndDate] = useState<string>('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -441,53 +444,55 @@ export default function App() {
   // Chart Data for Recettes (follows selectedPeriod)
   const recettesChartData = useMemo(() => {
     const now = new Date();
-    let intervalStart: Date;
+    let filtered: Transaction[] = [];
     let groupingFn: (date: Date) => Date;
     let labelFormat: string;
-
-    switch (selectedPeriod) {
-      case 'JOUR':
-        intervalStart = subDays(now, 14); // Show last 14 days
-        groupingFn = startOfDay;
-        labelFormat = 'dd MMM';
-        break;
-      case 'SEMAINE':
-        intervalStart = subDays(now, 60); // Show last 8 weeks
-        groupingFn = (d) => startOfWeek(d, { weekStartsOn: 1 });
-        labelFormat = 'dd/MM';
-        break;
-      case 'QUINZAINE':
-        intervalStart = subDays(now, 120);
-        groupingFn = (d) => d.getDate() <= 15 ? startOfMonth(d) : addDays(startOfMonth(d), 15);
-        labelFormat = 'dd/MM';
-        break;
-      case 'MOIS':
-        intervalStart = startOfYear(now);
-        groupingFn = startOfMonth;
-        labelFormat = 'MMM';
-        break;
-      case 'TRIMESTRE':
-        intervalStart = subDays(now, 730);
-        groupingFn = startOfQuarter;
-        labelFormat = 'QQQ yyyy';
-        break;
-      case 'SEMESTRE':
-        intervalStart = subDays(now, 1825);
-        groupingFn = (d) => d.getMonth() < 6 ? startOfYear(d) : addMonths(startOfYear(d), 6);
-        labelFormat = 'S';
-        break;
-      case 'ANNEE':
-        intervalStart = subDays(now, 1825); // 5 years
-        groupingFn = startOfYear;
-        labelFormat = 'yyyy';
-        break;
-      default:
-        intervalStart = startOfMonth(now);
-        groupingFn = startOfDay;
-        labelFormat = 'dd MMM';
+    if (selectedPeriod === 'JOUR') {
+      groupingFn = startOfDay;
+      labelFormat = 'dd MMM';
+      const targetDate = new Date(selectedDate);
+      filtered = transactions.filter(t => isSameDay(t.date, targetDate));
+    } else {
+      let intervalStart: Date;
+      switch (selectedPeriod) {
+        case 'SEMAINE':
+          intervalStart = subDays(now, 60); // Show last 8 weeks
+          groupingFn = (d) => startOfWeek(d, { weekStartsOn: 1 });
+          labelFormat = 'dd/MM';
+          break;
+        case 'QUINZAINE':
+          intervalStart = subDays(now, 120);
+          groupingFn = (d) => d.getDate() <= 15 ? startOfMonth(d) : addDays(startOfMonth(d), 15);
+          labelFormat = 'dd/MM';
+          break;
+        case 'MOIS':
+          intervalStart = startOfYear(now);
+          groupingFn = startOfMonth;
+          labelFormat = 'MMM';
+          break;
+        case 'TRIMESTRE':
+          intervalStart = subDays(now, 730);
+          groupingFn = startOfQuarter;
+          labelFormat = 'QQQ yyyy';
+          break;
+        case 'SEMESTRE':
+          intervalStart = subDays(now, 1825);
+          groupingFn = (d) => d.getMonth() < 6 ? startOfYear(d) : addMonths(startOfYear(d), 6);
+          labelFormat = 'S';
+          break;
+        case 'ANNEE':
+          intervalStart = subDays(now, 1825); // 5 years
+          groupingFn = startOfYear;
+          labelFormat = 'yyyy';
+          break;
+        default:
+          intervalStart = startOfMonth(now);
+          groupingFn = startOfDay;
+          labelFormat = 'dd MMM';
+      }
+      filtered = transactions.filter(t => t.date >= intervalStart);
     }
-
-    const filtered = transactions.filter(t => t.date >= intervalStart);
+    
     const groups: Record<string, any> = {};
 
     filtered.forEach(t => {
@@ -1093,25 +1098,44 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 dark:bg-[#080d1a] text-slate-600 dark:text-slate-200 flex transition-colors duration-300">
       <Toaster position="top-right" richColors />
       
+      {/* Mobile Sidebar Overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 border-r border-slate-200 dark:border-white/5 bg-white dark:bg-[#0e1629] flex flex-col sticky top-0 h-screen z-50 transition-colors duration-300">
-        <div className="p-6 border-b border-slate-200 dark:border-white/5">
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg">✚</span>
+      <aside className={cn(
+        "w-64 border-r border-slate-200 dark:border-white/5 bg-white dark:bg-[#0e1629] flex flex-col fixed lg:sticky top-0 h-screen z-50 transition-transform duration-300",
+        isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+      )}>
+        <div className="p-6 border-b border-slate-200 dark:border-white/5 flex justify-between items-center">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-lg">✚</span>
+              </div>
+              <span className="font-bold text-slate-900 dark:text-white tracking-tight">PHARMA PRO</span>
             </div>
-            <span className="font-bold text-slate-900 dark:text-white tracking-tight">PHARMA PRO</span>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em]">Aéroport de Lomé</p>
           </div>
-          <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em]">Aéroport de Lomé</p>
+          <button 
+            className="lg:hidden p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+            onClick={() => setIsSidebarOpen(false)}
+          >
+            <XCircle size={20} />
+          </button>
         </div>
 
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-          <NavItem active={activeTab === 'accueil'} onClick={() => { setActiveTab('accueil'); setSubTab(''); }} icon={<LayoutDashboard size={18}/>} label="Vue d'ensemble" />
-          <NavItem active={activeTab === 'recettes'} onClick={() => { setActiveTab('recettes'); setSubTab(''); }} icon={<TrendingUp size={18}/>} label="Recettes" />
-          <NavItem active={activeTab === 'fournisseurs'} onClick={() => { setActiveTab('fournisseurs'); setSubTab('COMMANDES'); }} icon={<Package size={18}/>} label="Fournisseurs" />
-          <NavItem active={activeTab === 'dcssa'} onClick={() => { setActiveTab('dcssa'); setSubTab('DCSSA'); }} icon={<FileText size={18}/>} label="DCSSA" />
-          <NavItem active={activeTab === 'implants'} onClick={() => { setActiveTab('implants'); setSubTab(''); }} icon={<Database size={18}/>} label="Implants" />
-          <NavItem active={activeTab === 'assurances'} onClick={() => { setActiveTab('assurances'); setSubTab('LISTE'); }} icon={<ShieldCheck size={18}/>} label="Assurances" />
+          <NavItem active={activeTab === 'accueil'} onClick={() => { setActiveTab('accueil'); setSubTab(''); setIsSidebarOpen(false); }} icon={<LayoutDashboard size={18}/>} label="Vue d'ensemble" />
+          <NavItem active={activeTab === 'recettes'} onClick={() => { setActiveTab('recettes'); setSubTab(''); setIsSidebarOpen(false); }} icon={<TrendingUp size={18}/>} label="Recettes" />
+          <NavItem active={activeTab === 'fournisseurs'} onClick={() => { setActiveTab('fournisseurs'); setSubTab('COMMANDES'); setIsSidebarOpen(false); }} icon={<Package size={18}/>} label="Fournisseurs" />
+          <NavItem active={activeTab === 'dcssa'} onClick={() => { setActiveTab('dcssa'); setSubTab('DCSSA'); setIsSidebarOpen(false); }} icon={<FileText size={18}/>} label="DCSSA" />
+          <NavItem active={activeTab === 'implants'} onClick={() => { setActiveTab('implants'); setSubTab(''); setIsSidebarOpen(false); }} icon={<Database size={18}/>} label="Implants" />
+          <NavItem active={activeTab === 'assurances'} onClick={() => { setActiveTab('assurances'); setSubTab('LISTE'); setIsSidebarOpen(false); }} icon={<ShieldCheck size={18}/>} label="Assurances" />
           {userRole !== 'directrice' && (
             <>
               <div className="h-px bg-white/5 my-4 mx-2" />
@@ -1119,9 +1143,10 @@ export default function App() {
                 active={activeTab === 'saisie'} 
                 onClick={() => { 
                   if (!isSaisieUnlocked) {
-                    setPasswordModal({ open: true, target: 'saisie', onUnlock: () => { setIsSaisieUnlocked(true); setActiveTab('saisie'); } });
+                    setPasswordModal({ open: true, target: 'saisie', onUnlock: () => { setIsSaisieUnlocked(true); setActiveTab('saisie'); setIsSidebarOpen(false); } });
                   } else {
                     setActiveTab('saisie'); 
+                    setIsSidebarOpen(false);
                   }
                   setSubTab(''); 
                 }} 
@@ -1132,9 +1157,10 @@ export default function App() {
                 active={activeTab === 'parametres'} 
                 onClick={() => { 
                   if (!isParametresUnlocked) {
-                    setPasswordModal({ open: true, target: 'parametres', onUnlock: () => { setIsParametresUnlocked(true); setActiveTab('parametres'); } });
+                    setPasswordModal({ open: true, target: 'parametres', onUnlock: () => { setIsParametresUnlocked(true); setActiveTab('parametres'); setIsSidebarOpen(false); } });
                   } else {
                     setActiveTab('parametres'); 
+                    setIsSidebarOpen(false);
                   }
                   setSubTab(''); 
                 }} 
@@ -1144,7 +1170,7 @@ export default function App() {
             </>
           )}
           <div className="h-px bg-white/5 my-4 mx-2" />
-          <NavItem active={activeTab === 'logs'} onClick={() => { setActiveTab('logs'); setSubTab(''); }} icon={<History size={18}/>} label="Journal d'audit" />
+          <NavItem active={activeTab === 'logs'} onClick={() => { setActiveTab('logs'); setSubTab(''); setIsSidebarOpen(false); }} icon={<History size={18}/>} label="Journal d'audit" />
         </nav>
 
         <div className="p-4 border-t border-white/5">
@@ -1159,36 +1185,57 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden w-full">
         {/* Header */}
-        <header className="h-20 border-b border-slate-200 dark:border-white/5 bg-white/50 dark:bg-[#0e1629]/50 backdrop-blur-md flex items-center justify-between px-8 sticky top-0 z-40 transition-colors duration-300">
-          <div className="flex items-center gap-4">
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white capitalize">
-              {activeTab === 'accueil' ? "Tableau de Bord" : 
-               activeTab === 'dcssa' ? "DCSSA" :
-               activeTab === 'saisie' ? "Mise à jour" :
-               activeTab === 'parametres' ? "Paramètres" :
-               activeTab}
-              {subTab && <span className="text-slate-400 dark:text-slate-500 font-normal ml-2">/ {subTab}</span>}
-            </h2>
-          </div>
-
-          <div className="flex items-center gap-4">
+        <header className="border-b border-slate-200 dark:border-white/5 bg-white/50 dark:bg-[#0e1629]/50 backdrop-blur-md flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 lg:px-8 py-4 sticky top-0 z-40 transition-colors duration-300 gap-4">
+          <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-start">
+            <div className="flex items-center gap-4">
+              <button 
+                className="lg:hidden p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+                onClick={() => setIsSidebarOpen(true)}
+              >
+                <Menu size={24} />
+              </button>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white capitalize">
+                {activeTab === 'accueil' ? "Tableau de Bord" : 
+                 activeTab === 'dcssa' ? "DCSSA" :
+                 activeTab === 'saisie' ? "Mise à jour" :
+                 activeTab === 'parametres' ? "Paramètres" :
+                 activeTab}
+                {subTab && <span className="text-slate-400 dark:text-slate-500 font-normal ml-2">/ {subTab}</span>}
+              </h2>
+            </div>
             <button
               onClick={() => setDarkMode(!darkMode)}
-              className="p-2.5 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:text-emerald-500 dark:hover:text-emerald-400 transition-all border border-slate-200 dark:border-white/5"
+              className="sm:hidden p-2.5 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:text-emerald-500 dark:hover:text-emerald-400 transition-all border border-slate-200 dark:border-white/5"
               title={darkMode ? "Passer au mode clair" : "Passer au mode sombre"}
             >
               {darkMode ? <Sun size={20} /> : <Moon size={20} />}
             </button>
-            <div className="flex bg-slate-100 dark:bg-white/5 rounded-xl p-1 overflow-x-auto max-w-[400px] md:max-w-none border border-slate-200 dark:border-white/5">
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
+            <button
+              onClick={() => setDarkMode(!darkMode)}
+              className="hidden sm:block p-2.5 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:text-emerald-500 dark:hover:text-emerald-400 transition-all border border-slate-200 dark:border-white/5 shrink-0"
+              title={darkMode ? "Passer au mode clair" : "Passer au mode sombre"}
+            >
+              {darkMode ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+            <div className="flex bg-slate-100 dark:bg-white/5 rounded-xl p-1 overflow-x-auto border border-slate-200 dark:border-white/5 shrink-0">
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-transparent text-slate-600 dark:text-slate-200 border-none focus:outline-none"
+              />
               {(['JOUR', 'SEMAINE', 'QUINZAINE', 'MOIS', 'TRIMESTRE', 'SEMESTRE', 'ANNEE'] as Period[]).map((p) => (
                 <button
                   key={p}
                   onClick={() => setSelectedPeriod(p)}
                   className={cn(
                     "px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all whitespace-nowrap",
-                    selectedPeriod === p ? "bg-emerald-600 text-white shadow-lg" : "text-slate-400 hover:text-slate-200"
+                    selectedPeriod === p ? "bg-emerald-600 text-white shadow-lg" : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
                   )}
                 >
                   {p}
@@ -1197,17 +1244,17 @@ export default function App() {
             </div>
             <button 
               onClick={handleExportExcel}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all shadow-lg shadow-emerald-900/20"
+              className="hidden sm:flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all shadow-lg shadow-emerald-900/20 shrink-0"
             >
               <FileSpreadsheet size={16} />
-              Exporter Excel
+              <span className="hidden lg:inline">Exporter Excel</span>
             </button>
             <button 
               onClick={handleExportPDF}
-              className="flex items-center gap-2 bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all border border-white/5"
+              className="hidden sm:flex items-center gap-2 bg-white dark:bg-white/5 hover:bg-slate-50 dark:hover:bg-white/10 text-slate-900 dark:text-white px-4 py-2 rounded-xl text-sm font-medium transition-all border border-slate-200 dark:border-white/5 shrink-0"
             >
               <Download size={16} />
-              Exporter PDF
+              <span className="hidden lg:inline">Exporter PDF</span>
             </button>
           </div>
         </header>
@@ -2377,6 +2424,19 @@ export default function App() {
                         toast.error(message);
                       }
                     }}>
+                      {/* Date Input for Backdating */}
+                      <div className="bg-slate-50 dark:bg-white/5 p-4 rounded-xl border border-slate-200 dark:border-white/10 mb-6">
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Date de la saisie</label>
+                        <input 
+                          name="date" 
+                          type="date" 
+                          defaultValue={new Date().toISOString().split('T')[0]}
+                          required 
+                          className="w-full bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" 
+                        />
+                        <p className="text-xs text-slate-500 mt-2">Modifiez cette date pour antidater une saisie.</p>
+                      </div>
+
                       {/* Form Fields based on Section */}
                       {saisieSection === 'VENTES' && (
                         <div className="space-y-4">
@@ -2506,17 +2566,13 @@ export default function App() {
                       )}
 
                       {/* Common Fields */}
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 gap-4">
                         {saisieSection !== 'VENTES' && (
                           <div>
                             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Montant</label>
                             <input name="amount" type="number" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" placeholder="0" />
                           </div>
                         )}
-                        <div className={cn(saisieSection === 'VENTES' ? "col-span-2" : "")}>
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Date</label>
-                          <input name="date" type="date" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" defaultValue={format(new Date(), 'yyyy-MM-dd')} />
-                        </div>
                       </div>
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Description</label>
@@ -2552,33 +2608,33 @@ export default function App() {
                 <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
                   <div className="p-6 border-b border-slate-100 dark:border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <h3 className="font-bold text-slate-900 dark:text-white">Dernières Saisies</h3>
-                    <div className="flex flex-wrap items-center gap-4">
-                      <div className="relative">
+                    <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-4 w-full md:w-auto">
+                      <div className="relative w-full sm:w-auto">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
                         <input 
                           type="text" 
                           placeholder="Rechercher..." 
-                          className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg pl-9 pr-4 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
+                          className="w-full sm:w-auto bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg pl-9 pr-4 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
                           onChange={(e) => setSearchQuery(e.target.value)}
                         />
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
                         <input 
                           type="date" 
                           value={saisieStartDate}
                           onChange={(e) => setSaisieStartDate(e.target.value)}
-                          className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
+                          className="flex-1 sm:flex-none bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
                         />
                         <span className="text-slate-400 text-xs">à</span>
                         <input 
                           type="date" 
                           value={saisieEndDate}
                           onChange={(e) => setSaisieEndDate(e.target.value)}
-                          className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
+                          className="flex-1 sm:flex-none bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
                         />
                       </div>
                         <select 
-                          className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
+                          className="w-full sm:w-auto bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
                           value={saisieTypeFilter}
                           onChange={(e) => setSaisieTypeFilter(e.target.value)}
                         >
