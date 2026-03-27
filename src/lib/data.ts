@@ -1,6 +1,15 @@
 import { subDays, eachDayOfInterval } from 'date-fns';
 
 export type TransactionType = 
+  | 'TOTAL_ESPECE'
+  | 'TOTAL_VENTE_COMPTANT'
+  | 'PART_ASSUREE_TIERS_PAYANT'
+  | 'TOTAL_VENTE_TIERS_PAYANT'
+  | 'PART_ASSURANCE_A_REGLEE'
+  | 'TOTAL_VENTE_A_CREDIT'
+  | 'TOTALE_REMISE'
+  | 'TOTALE_TOUTES_VENTES_CONFONDU'
+  | 'PEREMPTION_AVARIE'
   | 'COMPTANTS' 
   | 'PART_ASSUREE' 
   | 'TIERS_PAYANT' 
@@ -79,18 +88,29 @@ const generateSimulationData = (): Transaction[] => {
 
     // 1. RECETTES (Daily)
     const baseSales = rand(400000, 800000) * multiplier;
-    transactions.push({ id: `comp-${day.getTime()}`, date: day, type: 'COMPTANTS', amount: Math.round(baseSales * 0.6), category: 'Ventes', description: 'Ventes comptants' });
-    transactions.push({ id: `part-${day.getTime()}`, date: day, type: 'PART_ASSUREE', amount: Math.round(baseSales * 0.4), category: 'Ventes', description: 'Part assurée encaissée' });
-    
-    if (Math.random() > 0.2) {
-      transactions.push({ id: `tp-${day.getTime()}`, date: day, type: 'TIERS_PAYANT', amount: Math.round(baseSales * 0.3), category: 'Ventes', description: 'Remboursements attendus', entityId: ['a1', 'a2', 'a3', 'a4'][rand(0, 3)] });
+    const totalVenteComptant = Math.round(baseSales * 0.6);
+    const partAssureeTiersPayant = Math.round(baseSales * 0.4);
+    const totalEspece = totalVenteComptant + partAssureeTiersPayant;
+    const partAssuranceAReglee = Math.round(baseSales * 0.3);
+    const totalVenteTiersPayant = partAssureeTiersPayant + partAssuranceAReglee;
+    const totalVenteACredit = Math.random() > 0.8 ? rand(50000, 150000) : 0;
+    const totaleRemise = rand(10000, 30000);
+    const totalGlobal = totalVenteComptant + partAssureeTiersPayant + partAssuranceAReglee + totalVenteACredit;
+
+    transactions.push({ id: `te-${day.getTime()}`, date: day, type: 'TOTAL_ESPECE', amount: totalEspece, category: 'Ventes', description: 'Total Espèce' });
+    transactions.push({ id: `tvc-${day.getTime()}`, date: day, type: 'TOTAL_VENTE_COMPTANT', amount: totalVenteComptant, category: 'Ventes', description: 'Total Vente au Comptant' });
+    transactions.push({ id: `patp-${day.getTime()}`, date: day, type: 'PART_ASSUREE_TIERS_PAYANT', amount: partAssureeTiersPayant, category: 'Ventes', description: 'Part Assurée Tiers Payant' });
+    transactions.push({ id: `tvtp-${day.getTime()}`, date: day, type: 'TOTAL_VENTE_TIERS_PAYANT', amount: totalVenteTiersPayant, category: 'Ventes', description: 'Total Vente Tiers Payant' });
+    transactions.push({ id: `paar-${day.getTime()}`, date: day, type: 'PART_ASSURANCE_A_REGLEE', amount: partAssuranceAReglee, category: 'Ventes', description: 'Part Assurance à Réglée' });
+    if (totalVenteACredit > 0) {
+      transactions.push({ id: `tvac-${day.getTime()}`, date: day, type: 'TOTAL_VENTE_A_CREDIT', amount: totalVenteACredit, category: 'Ventes', description: 'Total Vente à Crédit' });
     }
-    
-    if (Math.random() > 0.8) {
-      transactions.push({ id: `cred-${day.getTime()}`, date: day, type: 'CREDIT', amount: rand(50000, 150000), category: 'Ventes', description: 'Crédits patients' });
+    transactions.push({ id: `tr-${day.getTime()}`, date: day, type: 'TOTALE_REMISE', amount: totaleRemise, category: 'Ventes', description: 'Totale Remise' });
+    transactions.push({ id: `ttvc-${day.getTime()}`, date: day, type: 'TOTALE_TOUTES_VENTES_CONFONDU', amount: totalGlobal, category: 'Ventes', description: 'Totale Toutes Ventes Confondu' });
+
+    if (Math.random() > 0.9) {
+      transactions.push({ id: `per-${day.getTime()}`, date: day, type: 'PEREMPTION_AVARIE', amount: rand(5000, 25000), category: 'Pertes', description: 'Péremption et avariés' });
     }
-    
-    transactions.push({ id: `rem-${day.getTime()}`, date: day, type: 'REMISE', amount: rand(10000, 30000), category: 'Ventes', description: 'Remises autorisées' });
 
     // 2. FOURNISSEURS (Weekly orders)
     if (day.getDay() === 1 || day.getDay() === 4) {

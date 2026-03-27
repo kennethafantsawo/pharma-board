@@ -103,15 +103,15 @@ export default function App() {
 
   useEffect(() => {
     if (darkMode) {
-      document.body.classList.add('dark');
+      document.documentElement.classList.add('dark');
       localStorage.setItem('theme', 'dark');
     } else {
-      document.body.classList.remove('dark');
+      document.documentElement.classList.remove('dark');
       localStorage.setItem('theme', 'light');
     }
   }, [darkMode]);
 
-  const [saisieSection, setSaisieSection] = useState<'VENTES' | 'FOURNISSEURS' | 'CONSOMMATIONS' | 'REJETS'>('VENTES');
+  const [saisieSection, setSaisieSection] = useState<'VENTES' | 'FOURNISSEURS' | 'CONSOMMATIONS' | 'REJETS' | 'PEREMPTIONS'>('VENTES');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -293,7 +293,7 @@ export default function App() {
   // KPIs for Accueil
   const kpis = useMemo(() => {
     const totalRecettes = filteredTransactions
-      .filter(t => ['COMPTANTS', 'PART_ASSUREE', 'TIERS_PAYANT'].includes(t.type))
+      .filter(t => ['COMPTANTS', 'PART_ASSUREE', 'TIERS_PAYANT', 'TOTAL_ESPECE', 'TOTAL_VENTE_COMPTANT', 'PART_ASSUREE_TIERS_PAYANT', 'PART_ASSURANCE_A_REGLEE'].includes(t.type))
       .reduce((sum, t) => sum + t.amount, 0);
     
     const totalCommandes = filteredTransactions
@@ -301,7 +301,7 @@ export default function App() {
       .reduce((sum, t) => sum + t.amount, 0);
 
     const totalCredit = filteredTransactions
-      .filter(t => t.type === 'CREDIT')
+      .filter(t => ['CREDIT', 'TOTAL_VENTE_A_CREDIT'].includes(t.type))
       .reduce((sum, t) => sum + t.amount, 0);
 
     const totalRejets = filteredTransactions
@@ -318,6 +318,16 @@ export default function App() {
   // Recettes Data
   const recettesData = useMemo(() => {
     const categories = {
+      TOTAL_ESPECE: 0,
+      TOTAL_VENTE_COMPTANT: 0,
+      PART_ASSUREE_TIERS_PAYANT: 0,
+      TOTAL_VENTE_TIERS_PAYANT: 0,
+      PART_ASSURANCE_A_REGLEE: 0,
+      TOTAL_VENTE_A_CREDIT: 0,
+      TOTALE_REMISE: 0,
+      TOTALE_TOUTES_VENTES_CONFONDU: 0,
+      PEREMPTION_AVARIE: 0,
+      // Keep old ones for backward compatibility if needed
       COMPTANTS: 0,
       PART_ASSUREE: 0,
       TIERS_PAYANT: 0,
@@ -330,14 +340,16 @@ export default function App() {
       }
     });
     
-    const totalEspece = categories.COMPTANTS + categories.PART_ASSUREE;
-    const totalVenteComptant = categories.COMPTANTS;
-    const partAssureeTiersPayant = categories.PART_ASSUREE;
-    const totalVenteTiersPayant = categories.PART_ASSUREE + categories.TIERS_PAYANT;
-    const partAssuranceAReglee = categories.TIERS_PAYANT;
-    const totalVenteACredit = categories.CREDIT;
-    const totaleRemise = categories.REMISE;
-    const totalGlobal = categories.COMPTANTS + categories.PART_ASSUREE + categories.TIERS_PAYANT + categories.CREDIT;
+    // If there are old transactions, map them to the new logic
+    const totalEspece = categories.TOTAL_ESPECE + categories.COMPTANTS + categories.PART_ASSUREE;
+    const totalVenteComptant = categories.TOTAL_VENTE_COMPTANT + categories.COMPTANTS;
+    const partAssureeTiersPayant = categories.PART_ASSUREE_TIERS_PAYANT + categories.PART_ASSUREE;
+    const totalVenteTiersPayant = categories.TOTAL_VENTE_TIERS_PAYANT + categories.PART_ASSUREE + categories.TIERS_PAYANT;
+    const partAssuranceAReglee = categories.PART_ASSURANCE_A_REGLEE + categories.TIERS_PAYANT;
+    const totalVenteACredit = categories.TOTAL_VENTE_A_CREDIT + categories.CREDIT;
+    const totaleRemise = categories.TOTALE_REMISE + categories.REMISE;
+    const totalGlobal = categories.TOTALE_TOUTES_VENTES_CONFONDU + categories.COMPTANTS + categories.PART_ASSUREE + categories.TIERS_PAYANT + categories.CREDIT;
+    const peremptionAvarie = categories.PEREMPTION_AVARIE;
 
     return { 
       ...categories, 
@@ -349,7 +361,8 @@ export default function App() {
       partAssuranceAReglee,
       totalVenteACredit,
       totaleRemise,
-      totalGlobal
+      totalGlobal,
+      peremptionAvarie
     };
   }, [filteredTransactions]);
 
@@ -424,13 +437,23 @@ export default function App() {
           tiers: 0,
           credit: 0,
           remises: 0,
-          commandes: 0
+          commandes: 0,
+          total: 0
         };
       }
-      if (t.type === 'COMPTANTS' || t.type === 'PART_ASSUREE') groups[key].comptants += t.amount;
-      if (t.type === 'TIERS_PAYANT') groups[key].tiers += t.amount;
-      if (t.type === 'CREDIT') groups[key].credit += t.amount;
-      if (t.type === 'REMISE') groups[key].remises += t.amount;
+      if (t.type === 'COMPTANTS' || t.type === 'PART_ASSUREE' || t.type === 'TOTAL_ESPECE' || t.type === 'TOTAL_VENTE_COMPTANT' || t.type === 'PART_ASSUREE_TIERS_PAYANT') {
+        groups[key].comptants += t.amount;
+        groups[key].total += t.amount;
+      }
+      if (t.type === 'TIERS_PAYANT' || t.type === 'PART_ASSURANCE_A_REGLEE') {
+        groups[key].tiers += t.amount;
+        groups[key].total += t.amount;
+      }
+      if (t.type === 'CREDIT' || t.type === 'TOTAL_VENTE_A_CREDIT') {
+        groups[key].credit += t.amount;
+        groups[key].total += t.amount;
+      }
+      if (t.type === 'REMISE' || t.type === 'TOTALE_REMISE') groups[key].remises += t.amount;
       if (t.type === 'COMMANDE') groups[key].commandes += t.amount;
     });
 
@@ -504,11 +527,15 @@ export default function App() {
     doc.text("Synthèse des Recettes", 14, 45);
     const recettesTable = [
       ["Catégorie", "Montant", "Pourcentage"],
-      ["Comptants", formatCurrency(recettesData.COMPTANTS), `${((recettesData.COMPTANTS / recettesData.total) * 100).toFixed(1)}%`],
-      ["Part Assurée", formatCurrency(recettesData.PART_ASSUREE), `${((recettesData.PART_ASSUREE / recettesData.total) * 100).toFixed(1)}%`],
-      ["Tiers Payant", formatCurrency(recettesData.TIERS_PAYANT), `${((recettesData.TIERS_PAYANT / recettesData.total) * 100).toFixed(1)}%`],
-      ["Crédit", formatCurrency(recettesData.CREDIT), `${((recettesData.CREDIT / recettesData.total) * 100).toFixed(1)}%`],
-      ["TOTAL", formatCurrency(recettesData.total), "100%"]
+      ["Total Espèce", formatCurrency(recettesData.totalEspece), `${((recettesData.totalEspece / recettesData.totalGlobal) * 100).toFixed(1)}%`],
+      ["Total Vente au Comptant", formatCurrency(recettesData.totalVenteComptant), `${((recettesData.totalVenteComptant / recettesData.totalGlobal) * 100).toFixed(1)}%`],
+      ["Part Assurée Tiers Payant", formatCurrency(recettesData.partAssureeTiersPayant), `${((recettesData.partAssureeTiersPayant / recettesData.totalGlobal) * 100).toFixed(1)}%`],
+      ["Total Vente Tiers Payant", formatCurrency(recettesData.totalVenteTiersPayant), `${((recettesData.totalVenteTiersPayant / recettesData.totalGlobal) * 100).toFixed(1)}%`],
+      ["Part Assurance à Réglée", formatCurrency(recettesData.partAssuranceAReglee), `${((recettesData.partAssuranceAReglee / recettesData.totalGlobal) * 100).toFixed(1)}%`],
+      ["Total Vente à Crédit", formatCurrency(recettesData.totalVenteACredit), `${((recettesData.totalVenteACredit / recettesData.totalGlobal) * 100).toFixed(1)}%`],
+      ["Totale Remise", formatCurrency(recettesData.totaleRemise), `${((recettesData.totaleRemise / recettesData.totalGlobal) * 100).toFixed(1)}%`],
+      ["Péremption & Avariés", formatCurrency(recettesData.peremptionAvarie), "-"],
+      ["TOTAL TOUTES VENTES CONFONDU", formatCurrency(recettesData.totalGlobal), "100%"]
     ];
     doc.autoTable({
       startY: 50,
@@ -632,9 +659,9 @@ export default function App() {
 
     // Sheet 1: Recettes
     const wsRecettes = XLSX.utils.json_to_sheet([
-      { Instructions: "Remplissez les recettes quotidiennes ici. Types autorisés: COMPTANTS, PART_ASSUREE, TIERS_PAYANT, CREDIT, REMISE" },
-      { Date: '2026-03-24', Type: 'COMPTANTS', Montant: 500000, Categorie: 'Ventes', Description: 'Ventes du jour' },
-      { Date: '2026-03-24', Type: 'PART_ASSUREE', Montant: 200000, Categorie: 'Ventes', Description: 'Part mutuelle' }
+      { Instructions: "Remplissez les recettes quotidiennes ici. Types autorisés: TOTAL_ESPECE, TOTAL_VENTE_COMPTANT, PART_ASSUREE_TIERS_PAYANT, TOTAL_VENTE_TIERS_PAYANT, PART_ASSURANCE_A_REGLEE, TOTAL_VENTE_A_CREDIT, TOTALE_REMISE, TOTALE_TOUTES_VENTES_CONFONDU, PEREMPTION_AVARIE" },
+      { Date: '2026-03-24', Type: 'TOTAL_ESPECE', Montant: 500000, Categorie: 'Ventes', Description: 'Ventes du jour' },
+      { Date: '2026-03-24', Type: 'PART_ASSUREE_TIERS_PAYANT', Montant: 200000, Categorie: 'Ventes', Description: 'Part mutuelle' }
     ]);
     
     // Apply styles to Recettes
@@ -729,10 +756,15 @@ export default function App() {
       ["Consommation Implants", kpis.totalImplants],
       [],
       ["RÉPARTITION DES RECETTES"],
-      ["Comptants", recettesData.COMPTANTS],
-      ["Tiers Payant", recettesData.TIERS_PAYANT],
-      ["Crédit", recettesData.CREDIT],
-      ["Remises", recettesData.REMISE],
+      ["Total Espèce", recettesData.totalEspece],
+      ["Total Vente au Comptant", recettesData.totalVenteComptant],
+      ["Part Assurée Tiers Payant", recettesData.partAssureeTiersPayant],
+      ["Total Vente Tiers Payant", recettesData.totalVenteTiersPayant],
+      ["Part Assurance à Réglée", recettesData.partAssuranceAReglee],
+      ["Total Vente à Crédit", recettesData.totalVenteACredit],
+      ["Totale Remise", recettesData.totaleRemise],
+      ["Péremption & Avariés", recettesData.peremptionAvarie],
+      ["TOTAL TOUTES VENTES CONFONDU", recettesData.totalGlobal],
     ];
 
     const wsDashboard = XLSX.utils.aoa_to_sheet(dashboardData);
@@ -750,7 +782,7 @@ export default function App() {
       wsDashboard[`B${i}`].z = "#,##0 \"FCFA\"";
     }
 
-    for(let i = 16; i <= 19; i++) {
+    for(let i = 16; i <= 24; i++) {
       wsDashboard[`A${i}`].s = kpiLabelStyle;
       wsDashboard[`B${i}`].s = kpiValueStyle;
       wsDashboard[`B${i}`].z = "#,##0 \"FCFA\"";
@@ -1274,7 +1306,7 @@ export default function App() {
                           }}
                           itemStyle={{ fontSize: '12px', color: darkMode ? '#f1f5f9' : '#0f172a' }}
                         />
-                        <Area type="monotone" dataKey="comptants" stroke="#10b981" fillOpacity={1} fill="url(#colorRec)" name="Recettes" />
+                        <Area type="monotone" dataKey="total" stroke="#10b981" fillOpacity={1} fill="url(#colorRec)" name="Recettes" />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -1287,10 +1319,11 @@ export default function App() {
                       <PieChart>
                         <Pie
                           data={[
-                            { name: 'Comptants', value: recettesData.COMPTANTS },
-                            { name: 'Tiers Payant', value: recettesData.TIERS_PAYANT },
-                            { name: 'Crédit', value: recettesData.CREDIT },
-                            { name: 'Remises', value: recettesData.REMISE },
+                            { name: 'Total Vente au Comptant', value: recettesData.totalVenteComptant },
+                            { name: 'Part Assurée Tiers Payant', value: recettesData.partAssureeTiersPayant },
+                            { name: 'Part Assurance à Réglée', value: recettesData.partAssuranceAReglee },
+                            { name: 'Total Vente à Crédit', value: recettesData.totalVenteACredit },
+                            { name: 'Totale Remise', value: recettesData.totaleRemise },
                           ]}
                           cx="50%"
                           cy="50%"
@@ -1301,6 +1334,7 @@ export default function App() {
                         >
                           <Cell fill="#10b981" />
                           <Cell fill="#3b82f6" />
+                          <Cell fill="#8b5cf6" />
                           <Cell fill="#f59e0b" />
                           <Cell fill="#ef4444" />
                         </Pie>
@@ -1376,6 +1410,10 @@ export default function App() {
                 <StatCard label="Totale Toutes Ventes Confondu" value={formatCurrency(recettesData.totalGlobal)} subValue="Chiffre d'affaires" color="emerald" />
               </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <StatCard label="Péremption & Avariés" value={formatCurrency(recettesData.peremptionAvarie)} subValue="Pertes sur produits" color="red" />
+              </div>
+
               <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Évolution des Flux de Recettes</h3>
                 <div className="h-96">
@@ -1394,10 +1432,10 @@ export default function App() {
                         itemStyle={{ color: darkMode ? '#f8fafc' : '#0f172a' }}
                       />
                       <Legend />
-                      <Line type="monotone" dataKey="comptants" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} name="Comptants" />
-                      <Line type="monotone" dataKey="tiers" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} name="Tiers Payant" />
-                      <Line type="monotone" dataKey="credit" stroke="#f59e0b" strokeWidth={3} dot={{ r: 4 }} name="Crédit" />
-                      <Line type="monotone" dataKey="remises" stroke="#ef4444" strokeWidth={3} dot={{ r: 4 }} name="Remises" />
+                      <Line type="monotone" dataKey="comptants" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} name="Total Comptant (Espèce + Part Patient)" />
+                      <Line type="monotone" dataKey="tiers" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} name="Part Assurance" />
+                      <Line type="monotone" dataKey="credit" stroke="#f59e0b" strokeWidth={3} dot={{ r: 4 }} name="Total Vente à Crédit" />
+                      <Line type="monotone" dataKey="remises" stroke="#ef4444" strokeWidth={3} dot={{ r: 4 }} name="Totale Remise" />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -1438,6 +1476,14 @@ export default function App() {
                       </td>
                       <td className="px-6 py-4 text-sm font-mono font-bold text-slate-900 dark:text-white">{formatCurrency(recettesData.totalGlobal)}</td>
                       <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">100%</td>
+                    </tr>
+                    <tr className="bg-red-50 dark:bg-red-500/5 border-t border-red-100 dark:border-red-500/10">
+                      <td className="px-6 py-4">
+                        <div className="text-sm font-bold text-red-600 dark:text-red-400 uppercase">Péremption & Avariés</div>
+                        <div className="text-[10px] text-red-500/70 font-normal">Pertes sur produits</div>
+                      </td>
+                      <td className="px-6 py-4 text-sm font-mono font-bold text-red-600 dark:text-red-400">{formatCurrency(recettesData.peremptionAvarie)}</td>
+                      <td className="px-6 py-4 text-sm font-bold text-red-600 dark:text-red-400">-</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1920,7 +1966,8 @@ export default function App() {
                   { id: 'VENTES', label: 'Ventes & Recettes', icon: DollarSign },
                   { id: 'FOURNISSEURS', label: 'Fournisseurs', icon: Package },
                   { id: 'CONSOMMATIONS', label: 'Consommations', icon: Activity },
-                  { id: 'REJETS', label: 'Assurances & Rejets', icon: ShieldCheck }
+                  { id: 'REJETS', label: 'Assurances & Rejets', icon: ShieldCheck },
+                  { id: 'PEREMPTIONS', label: 'Péremptions & Avariés', icon: AlertTriangle }
                 ].map((section) => (
                   <button
                     key={section.id}
@@ -1946,6 +1993,7 @@ export default function App() {
                       {saisieSection === 'FOURNISSEURS' && 'Saisie Fournisseurs'}
                       {saisieSection === 'CONSOMMATIONS' && 'Saisie Consommations'}
                       {saisieSection === 'REJETS' && 'Saisie Rejets'}
+                      {saisieSection === 'PEREMPTIONS' && 'Saisie Péremptions & Avariés'}
                     </h3>
                     <form className="space-y-4" onSubmit={async (e) => {
                       e.preventDefault();
@@ -1955,7 +2003,16 @@ export default function App() {
 
                       try {
                         if (saisieSection === 'VENTES') {
-                          const types = ['COMPTANTS', 'PART_ASSUREE', 'TIERS_PAYANT', 'CREDIT', 'REMISE'];
+                          const types = [
+                            'TOTAL_ESPECE',
+                            'TOTAL_VENTE_COMPTANT',
+                            'PART_ASSUREE_TIERS_PAYANT',
+                            'TOTAL_VENTE_TIERS_PAYANT',
+                            'PART_ASSURANCE_A_REGLEE',
+                            'TOTAL_VENTE_A_CREDIT',
+                            'TOTALE_REMISE',
+                            'TOTALE_TOUTES_VENTES_CONFONDU'
+                          ];
                           const promises = types.map(async (type) => {
                             const amount = Number(formData.get(type));
                             if (amount > 0) {
@@ -1964,7 +2021,7 @@ export default function App() {
                                 type: type as TransactionType,
                                 amount,
                                 category: 'Saisie Journalière',
-                                description: desc || `Saisie journalière ${type}`,
+                                description: desc || `Saisie journalière ${type.replace(/_/g, ' ')}`,
                               });
                             }
                             return null;
@@ -1979,7 +2036,7 @@ export default function App() {
                             toast.success('Recettes journalières enregistrées');
                           }
                         } else {
-                          const type = formData.get('type') as TransactionType;
+                          const type = (saisieSection === 'PEREMPTIONS' ? 'PEREMPTION_AVARIE' : formData.get('type')) as TransactionType;
                           const amount = Number(formData.get('amount'));
                           const entityId = formData.get('entityId') as string;
                           const status = formData.get('status') as any;
@@ -1991,7 +2048,7 @@ export default function App() {
                             date,
                             type,
                             amount,
-                            category: 'Saisie Manuelle',
+                            category: saisieSection === 'PEREMPTIONS' ? 'Pertes' : 'Saisie Manuelle',
                             description: desc,
                             entityId: entityId || undefined,
                             status: status || undefined,
@@ -2027,24 +2084,34 @@ export default function App() {
                       {saisieSection === 'VENTES' && (
                         <div className="space-y-4">
                           <div className="bg-emerald-500/5 p-4 rounded-xl border border-emerald-500/10 mb-4">
-                            <h4 className="text-[10px] font-bold text-emerald-600 uppercase mb-3">Ventes au Comptant</h4>
+                            <h4 className="text-[10px] font-bold text-emerald-600 uppercase mb-3">Espèces & Comptant</h4>
                             <div className="space-y-3">
                               <div>
-                                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Total Vente au Comptant (Espèce)</label>
-                                <input name="COMPTANTS" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors" placeholder="0" />
+                                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Total Espèce</label>
+                                <input name="TOTAL_ESPECE" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors" placeholder="0" />
                               </div>
                               <div>
-                                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Part Assurée Tiers Payant (Patient)</label>
-                                <input name="PART_ASSUREE" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors" placeholder="0" />
+                                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Total Vente au Comptant</label>
+                                <input name="TOTAL_VENTE_COMPTANT" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors" placeholder="0" />
                               </div>
                             </div>
                           </div>
 
                           <div className="bg-blue-500/5 p-4 rounded-xl border border-blue-500/10 mb-4">
-                            <h4 className="text-[10px] font-bold text-blue-600 uppercase mb-3">Ventes Tiers Payant</h4>
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Part Assurance à Réglée (Tiers Payant)</label>
-                              <input name="TIERS_PAYANT" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 outline-none transition-colors" placeholder="0" />
+                            <h4 className="text-[10px] font-bold text-blue-600 uppercase mb-3">Tiers Payant</h4>
+                            <div className="space-y-3">
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Part Assurée Tiers Payant</label>
+                                <input name="PART_ASSUREE_TIERS_PAYANT" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 outline-none transition-colors" placeholder="0" />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Total Vente Tiers Payant</label>
+                                <input name="TOTAL_VENTE_TIERS_PAYANT" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 outline-none transition-colors" placeholder="0" />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Part Assurance à Réglée</label>
+                                <input name="PART_ASSURANCE_A_REGLEE" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 outline-none transition-colors" placeholder="0" />
+                              </div>
                             </div>
                           </div>
 
@@ -2053,11 +2120,15 @@ export default function App() {
                             <div className="space-y-3">
                               <div>
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Total Vente à Crédit</label>
-                                <input name="CREDIT" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none transition-colors" placeholder="0" />
+                                <input name="TOTAL_VENTE_A_CREDIT" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none transition-colors" placeholder="0" />
                               </div>
                               <div>
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Totale Remise</label>
-                                <input name="REMISE" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-red-500 outline-none transition-colors" placeholder="0" />
+                                <input name="TOTALE_REMISE" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-red-500 outline-none transition-colors" placeholder="0" />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Totale Toutes Ventes Confondu</label>
+                                <input name="TOTALE_TOUTES_VENTES_CONFONDU" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors" placeholder="0" />
                               </div>
                             </div>
                           </div>
@@ -2127,6 +2198,16 @@ export default function App() {
                         </>
                       )}
 
+                      {saisieSection === 'PEREMPTIONS' && (
+                        <>
+                          <input type="hidden" name="type" value="PEREMPTION_AVARIE" />
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Détails (Produits concernés)</label>
+                            <input name="reason" type="text" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" placeholder="Ex: Paracétamol 500mg (2 boîtes)" />
+                          </div>
+                        </>
+                      )}
+
                       {/* Common Fields */}
                       <div className="grid grid-cols-2 gap-4">
                         {saisieSection !== 'VENTES' && (
@@ -2190,10 +2271,15 @@ export default function App() {
                           onChange={(e) => setSaisieTypeFilter(e.target.value)}
                         >
                           <option value="TOUS">Tous les types</option>
-                          <option value="COMPTANTS">Vente au Comptant (Espèce)</option>
-                          <option value="PART_ASSUREE">Part Assurée Tiers Payant (Patient)</option>
-                          <option value="TIERS_PAYANT">Part Assurance à Réglée (Tiers Payant)</option>
-                          <option value="CREDIT">Vente à Crédit</option>
+                          <option value="TOTAL_ESPECE">Total Espèce</option>
+                          <option value="TOTAL_VENTE_COMPTANT">Total Vente au Comptant</option>
+                          <option value="PART_ASSUREE_TIERS_PAYANT">Part Assurée Tiers Payant</option>
+                          <option value="TOTAL_VENTE_TIERS_PAYANT">Total Vente Tiers Payant</option>
+                          <option value="PART_ASSURANCE_A_REGLEE">Part Assurance à Réglée</option>
+                          <option value="TOTAL_VENTE_A_CREDIT">Total Vente à Crédit</option>
+                          <option value="TOTALE_REMISE">Totale Remise</option>
+                          <option value="TOTALE_TOUTES_VENTES_CONFONDU">Totale Toutes Ventes Confondu</option>
+                          <option value="PEREMPTION_AVARIE">Péremption & Avariés</option>
                           <option value="COMMANDE">Commande Fournisseur</option>
                           <option value="FACTURE">Facture Fournisseur</option>
                           <option value="CONSOMMATION_DCSSA">Consommation DCSSA</option>
@@ -2231,14 +2317,19 @@ export default function App() {
                               <span className={cn(
                                 "px-2 py-1 rounded-md text-[10px] font-bold uppercase",
                                 t.type.startsWith('CONSOMMATION') ? "bg-blue-500/10 text-blue-500" :
-                                t.type.includes('REJET') ? "bg-red-500/10 text-red-500" :
+                                t.type.includes('REJET') || t.type === 'PEREMPTION_AVARIE' ? "bg-red-500/10 text-red-500" :
                                 t.type.includes('COMMANDE') || t.type.includes('FACTURE') ? "bg-amber-500/10 text-amber-500" :
                                 "bg-emerald-500/10 text-emerald-500"
                               )}>
-                                {t.type === 'COMPTANTS' ? 'Vente au Comptant (Espèce)' :
-                                 t.type === 'PART_ASSUREE' ? 'Part Assurée Tiers Payant (Patient)' :
-                                 t.type === 'TIERS_PAYANT' ? 'Part Assurance à Réglée (Tiers Payant)' :
-                                 t.type === 'CREDIT' ? 'Vente à Crédit' :
+                                {t.type === 'TOTAL_ESPECE' ? 'Total Espèce' :
+                                 t.type === 'TOTAL_VENTE_COMPTANT' ? 'Total Vente au Comptant' :
+                                 t.type === 'PART_ASSUREE_TIERS_PAYANT' ? 'Part Assurée Tiers Payant' :
+                                 t.type === 'TOTAL_VENTE_TIERS_PAYANT' ? 'Total Vente Tiers Payant' :
+                                 t.type === 'PART_ASSURANCE_A_REGLEE' ? 'Part Assurance à Réglée' :
+                                 t.type === 'TOTAL_VENTE_A_CREDIT' ? 'Total Vente à Crédit' :
+                                 t.type === 'TOTALE_REMISE' ? 'Totale Remise' :
+                                 t.type === 'TOTALE_TOUTES_VENTES_CONFONDU' ? 'Totale Toutes Ventes Confondu' :
+                                 t.type === 'PEREMPTION_AVARIE' ? 'Péremption & Avariés' :
                                  t.type.replace('_', ' ')}
                               </span>
                             </td>
