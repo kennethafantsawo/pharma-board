@@ -93,6 +93,26 @@ import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebas
 
 type Period = 'JOUR' | 'SEMAINE' | 'QUINZAINE' | 'MOIS' | 'TRIMESTRE' | 'SEMESTRE' | 'ANNEE';
 
+const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
+  { value: 'TOTAL_ESPECE', label: 'Total Espèce' },
+  { value: 'TOTAL_VENTE_COMPTANT', label: 'Total Vente au Comptant' },
+  { value: 'PART_ASSUREE_TIERS_PAYANT', label: 'Part Assurée Tiers Payant' },
+  { value: 'TOTAL_VENTE_TIERS_PAYANT', label: 'Total Vente Tiers Payant' },
+  { value: 'PART_ASSURANCE_A_REGLEE', label: 'Part Assurance à Réglée' },
+  { value: 'TOTAL_VENTE_A_CREDIT', label: 'Total Vente à Crédit' },
+  { value: 'TOTALE_REMISE', label: 'Totale Remise' },
+  { value: 'TOTALE_TOUTES_VENTES_CONFONDU', label: 'Totale Toutes Ventes Confondu' },
+  { value: 'PEREMPTION_AVARIE', label: 'Péremption & Avariés' },
+  { value: 'COMMANDE', label: 'Commande Fournisseur' },
+  { value: 'FACTURE', label: 'Facture Fournisseur' },
+  { value: 'RETOUR', label: 'Retour Fournisseur' },
+  { value: 'CONSOMMATION_DCSSA', label: 'Consommation DCSSA' },
+  { value: 'CONSOMMATION_KOUNDJOURE', label: 'Consommation Koundjouré' },
+  { value: 'CONSOMMATION_IMPLANT', label: 'Consommation Implant' },
+  { value: 'CONSOMMATION_ASSURANCE', label: 'Consommation Assurance' },
+  { value: 'REJET_ASSURANCE', label: 'Rejet Assurance' },
+];
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('accueil');
   const [subTab, setSubTab] = useState<string>('');
@@ -126,11 +146,22 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [userRole, setUserRole] = useState<'directrice' | 'assistant' | null>(null);
   const [loginError, setLoginError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [editAmount, setEditAmount] = useState<string>('');
+  const [editDate, setEditDate] = useState<string>('');
+  const [editType, setEditType] = useState<TransactionType | ''>('');
+  const [editDescription, setEditDescription] = useState<string>('');
+  const [editEntityId, setEditEntityId] = useState<string>('');
+  const [editStatus, setEditStatus] = useState<string>('');
+  const [editReason, setEditReason] = useState<string>('');
+  const [editDossiers, setEditDossiers] = useState<string>('');
+  const [editBeneficiaires, setEditBeneficiaires] = useState<string>('');
   const [logStartDate, setLogStartDate] = useState<string>('');
   const [logEndDate, setLogEndDate] = useState<string>('');
   const [saisieTypeFilter, setSaisieTypeFilter] = useState<string>('TOUS');
+  const [saisieStartDate, setSaisieStartDate] = useState<string>('');
+  const [saisieEndDate, setSaisieEndDate] = useState<string>('');
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -176,10 +207,18 @@ export default function App() {
   useEffect(() => {
     if (editingTransaction) {
       setEditAmount(editingTransaction.amount.toString());
+      setEditDate(format(editingTransaction.date, 'yyyy-MM-dd'));
+      setEditType(editingTransaction.type);
+      setEditDescription(editingTransaction.description);
+      setEditEntityId(editingTransaction.entityId || '');
+      setEditStatus(editingTransaction.status || '');
+      setEditReason(editingTransaction.reason || '');
+      setEditDossiers(editingTransaction.dossiers?.toString() || '');
+      setEditBeneficiaires(editingTransaction.beneficiaires?.toString() || '');
     }
   }, [editingTransaction]);
 
-  const handleUpdateTransactionAmount = async () => {
+  const handleUpdateTransaction = async () => {
     if (!editingTransaction) return;
     const newAmount = parseFloat(editAmount);
     if (isNaN(newAmount)) {
@@ -188,27 +227,47 @@ export default function App() {
     }
 
     try {
-      const previousAmount = editingTransaction.amount;
-      const updatedTx = await api.updateTransaction(editingTransaction.id, { amount: newAmount });
+      const updates: Partial<Transaction> = {
+        amount: newAmount,
+        date: new Date(editDate),
+        type: editType as TransactionType,
+        description: editDescription,
+        entityId: editEntityId || undefined,
+        status: (editStatus as any) || undefined,
+        reason: editReason || undefined,
+        dossiers: editDossiers ? parseInt(editDossiers) : undefined,
+        beneficiaires: editBeneficiaires ? parseInt(editBeneficiaires) : undefined,
+      };
+
+      const updatedTx = await api.updateTransaction(editingTransaction.id, updates);
       
       setTransactions(prev => prev.map(t => 
-        t.id === editingTransaction.id ? updatedTx : t
+        t.id === editingTransaction.id ? { ...t, ...updatedTx, date: new Date(editDate) } : t
       ));
 
       addLog(
         'UPDATE', 
         'TRANSACTION', 
         editingTransaction.id, 
-        `Modification montant facture: ${formatCurrency(previousAmount)} -> ${formatCurrency(newAmount)}`,
-        { amount: previousAmount },
-        { amount: newAmount }
+        `Modification transaction: ${editingTransaction.type} -> ${editType}`,
+        editingTransaction,
+        { ...editingTransaction, ...updates }
       );
 
-      toast.success('Montant mis à jour');
+      toast.success('Transaction mise à jour');
       setEditingTransaction(null);
       setEditAmount('');
+      setEditDate('');
+      setEditType('');
+      setEditDescription('');
+      setEditEntityId('');
+      setEditStatus('');
+      setEditReason('');
+      setEditDossiers('');
+      setEditBeneficiaires('');
     } catch (error) {
-      toast.error("Erreur lors de la mise à jour");
+      console.error(error);
+      toast.error('Erreur lors de la mise à jour');
     }
   };
 
@@ -219,10 +278,13 @@ export default function App() {
   // Auth Logic
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (isLoggingIn) return;
+
     const formData = new FormData(e.currentTarget);
     const user = formData.get('user') as string;
     const pass = formData.get('pass') as string;
 
+    setIsLoggingIn(true);
     const loadingToast = toast.loading('Connexion en cours...');
     try {
       // Pour Firebase, on utilise un email fictif basé sur l'identifiant
@@ -235,11 +297,21 @@ export default function App() {
       setLoginError('');
       addLog('CREATE', 'AUTH', user, `Connexion utilisateur: ${user}`);
       toast.success(`Bienvenue, ${user}`);
-    } catch (error) {
+    } catch (error: any) {
       toast.dismiss(loadingToast);
       console.error("Login crash:", error);
-      setLoginError('Identifiants ou mot de passe incorrects');
-      toast.error('Identifiants ou mot de passe incorrects');
+      
+      let message = 'Identifiants ou mot de passe incorrects';
+      if (error.code === 'auth/too-many-requests') {
+        message = 'Trop de tentatives de connexion. Votre compte est temporairement bloqué pour des raisons de sécurité. Veuillez réessayer plus tard.';
+      } else if (error.code === 'auth/network-request-failed') {
+        message = 'Erreur de connexion réseau. Veuillez vérifier votre connexion internet.';
+      }
+      
+      setLoginError(message);
+      toast.error(message);
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -931,6 +1003,17 @@ export default function App() {
     );
   }
 
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-[#080d1a] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Chargement de la session...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-[#080d1a] flex items-center justify-center p-4 transition-colors duration-300">
@@ -976,9 +1059,13 @@ export default function App() {
             {loginError && <p className="text-red-500 text-xs text-center">{loginError}</p>}
             <button 
               type="submit"
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-900/20"
+              disabled={isLoggingIn}
+              className={cn(
+                "w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-900/20",
+                isLoggingIn && "opacity-50 cursor-not-allowed"
+              )}
             >
-              Se connecter
+              {isLoggingIn ? 'Connexion...' : 'Se connecter'}
             </button>
           </form>
         </motion.div>
@@ -1221,50 +1308,151 @@ export default function App() {
 
           <AnimatePresence>
             {editingTransaction && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
                 <motion.div 
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.95 }}
-                  className="bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-white/10 rounded-2xl p-8 w-full max-w-md shadow-2xl transition-colors duration-300"
+                  className="bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-white/10 rounded-2xl p-8 w-full max-w-2xl shadow-2xl transition-colors duration-300 my-8"
                 >
                   <div className="flex items-center gap-3 mb-6 text-emerald-500">
                     <div className="p-3 bg-emerald-500/10 rounded-xl">
                       <Edit2 size={24} />
                     </div>
                     <div>
-                      <h3 className="text-xl font-bold text-slate-900 dark:text-white">Modifier le Montant</h3>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">Facture: {entities.find(e => e.id === editingTransaction.entityId)?.name}</p>
+                      <h3 className="text-xl font-bold text-slate-900 dark:text-white">Modifier la Transaction</h3>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">ID: {editingTransaction.id}</p>
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nouveau Montant (GNF)</label>
-                      <input 
-                        type="number"
-                        value={editAmount}
-                        onChange={(e) => setEditAmount(e.target.value)}
-                        className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
-                        placeholder="0.00"
-                        autoFocus
-                      />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Date</label>
+                        <input 
+                          type="date"
+                          value={editDate}
+                          onChange={(e) => setEditDate(e.target.value)}
+                          className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Type de Transaction</label>
+                        <select 
+                          value={editType}
+                          onChange={(e) => setEditType(e.target.value as TransactionType)}
+                          className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                        >
+                          {TRANSACTION_TYPES.map(t => (
+                            <option key={t.value} value={t.value}>{t.label}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Montant (GNF)</label>
+                        <input 
+                          type="number"
+                          value={editAmount}
+                          onChange={(e) => setEditAmount(e.target.value)}
+                          className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Description / Libellé</label>
+                        <input 
+                          type="text"
+                          value={editDescription}
+                          onChange={(e) => setEditDescription(e.target.value)}
+                          className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                        />
+                      </div>
                     </div>
 
-                    <div className="flex gap-3 pt-4">
-                      <button 
-                        onClick={() => setEditingTransaction(null)}
-                        className="flex-1 px-4 py-3 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10 transition-colors text-sm font-medium border border-slate-200 dark:border-white/10"
-                      >
-                        Annuler
-                      </button>
-                      <button 
-                        onClick={handleUpdateTransactionAmount}
-                        className="flex-1 px-4 py-3 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 transition-colors text-sm font-medium shadow-lg shadow-emerald-600/20"
-                      >
-                        Mettre à jour
-                      </button>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Partenaire (Optionnel)</label>
+                        <select 
+                          value={editEntityId}
+                          onChange={(e) => setEditEntityId(e.target.value)}
+                          className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                        >
+                          <option value="">Aucun</option>
+                          {entities.map(e => (
+                            <option key={e.id} value={e.id}>{e.name} ({e.type})</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {['FACTURE', 'COMMANDE', 'RETOUR'].includes(editType) && (
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Statut</label>
+                          <select 
+                            value={editStatus}
+                            onChange={(e) => setEditStatus(e.target.value)}
+                            className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                          >
+                            <option value="EN_ATTENTE">EN ATTENTE</option>
+                            <option value="PAYÉE">PAYÉE</option>
+                            <option value="REMBOURSÉ">REMBOURSÉ</option>
+                            <option value="LIVRÉ">LIVRÉ</option>
+                          </select>
+                        </div>
+                      )}
+
+                      {['REJET_ASSURANCE', 'RETOUR'].includes(editType) && (
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Motif / Raison</label>
+                          <input 
+                            type="text"
+                            value={editReason}
+                            onChange={(e) => setEditReason(e.target.value)}
+                            className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                          />
+                        </div>
+                      )}
+
+                      {editType === 'CONSOMMATION_DCSSA' && (
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nombre de Dossiers</label>
+                          <input 
+                            type="number"
+                            value={editDossiers}
+                            onChange={(e) => setEditDossiers(e.target.value)}
+                            className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                          />
+                        </div>
+                      )}
+
+                      {editType === 'CONSOMMATION_ASSURANCE' && (
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nombre de Bénéficiaires</label>
+                          <input 
+                            type="number"
+                            value={editBeneficiaires}
+                            onChange={(e) => setEditBeneficiaires(e.target.value)}
+                            className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                          />
+                        </div>
+                      )}
                     </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-8">
+                    <button 
+                      onClick={() => setEditingTransaction(null)}
+                      className="flex-1 px-4 py-3 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10 transition-colors text-sm font-medium border border-slate-200 dark:border-white/10"
+                    >
+                      Annuler
+                    </button>
+                    <button 
+                      onClick={handleUpdateTransaction}
+                      className="flex-1 px-4 py-3 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 transition-colors text-sm font-medium shadow-lg shadow-emerald-600/20"
+                    >
+                      Mettre à jour
+                    </button>
                   </div>
                 </motion.div>
               </div>
@@ -2265,6 +2453,21 @@ export default function App() {
                           onChange={(e) => setSearchQuery(e.target.value)}
                         />
                       </div>
+                      <div className="flex items-center gap-2">
+                        <input 
+                          type="date" 
+                          value={saisieStartDate}
+                          onChange={(e) => setSaisieStartDate(e.target.value)}
+                          className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
+                        />
+                        <span className="text-slate-400 text-xs">à</span>
+                        <input 
+                          type="date" 
+                          value={saisieEndDate}
+                          onChange={(e) => setSaisieEndDate(e.target.value)}
+                          className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
+                        />
+                      </div>
                         <select 
                           className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors duration-300"
                           value={saisieTypeFilter}
@@ -2307,9 +2510,14 @@ export default function App() {
                                                t.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
                                                (t.entityId && entities.find(e => e.id === t.entityId)?.name.toLowerCase().includes(searchQuery.toLowerCase()));
                             const matchesType = saisieTypeFilter === 'TOUS' || t.type === saisieTypeFilter;
-                            return matchesSearch && matchesType;
+                            
+                            const txDate = new Date(t.date);
+                            const matchesStartDate = !saisieStartDate || txDate >= new Date(saisieStartDate);
+                            const matchesEndDate = !saisieEndDate || txDate <= new Date(saisieEndDate);
+                            
+                            return matchesSearch && matchesType && matchesStartDate && matchesEndDate;
                           })
-                          .slice(0, 15)
+                          .slice(0, 100)
                           .map((t) => (
                           <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                             <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
