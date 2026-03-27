@@ -585,6 +585,30 @@ export default function App() {
     });
   }, [entities, transactions]);
 
+  const supplierSpecificChartData = useMemo(() => {
+    const supplier = entities.find(e => e.name === subTab);
+    if (!supplier) return [];
+
+    const now = new Date();
+    const intervalStart = startOfYear(now);
+    const filtered = transactions.filter(t => t.entityId === supplier.id && t.type === 'COMMANDE' && t.date >= intervalStart);
+    
+    const groups: Record<string, any> = {};
+    filtered.forEach(t => {
+      const key = startOfMonth(t.date).toISOString();
+      if (!groups[key]) {
+        groups[key] = {
+          date: startOfMonth(t.date),
+          name: format(startOfMonth(t.date), 'MMM', { locale: fr }),
+          commandes: 0
+        };
+      }
+      groups[key].commandes += t.amount;
+    });
+
+    return Object.values(groups).sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [transactions, subTab, entities]);
+
   // Export PDF Logic
   const handleExportPDF = () => {
     const doc = new jsPDF() as any;
@@ -994,14 +1018,6 @@ export default function App() {
       toast.error(message);
     }
   };
-
-  if (!isAuthReady) {
-    return (
-      <div className="min-h-screen bg-slate-50 dark:bg-[#080d1a] flex items-center justify-center p-4 transition-colors duration-300">
-        <div className="w-16 h-16 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
-  }
 
   if (!isAuthReady) {
     return (
@@ -1475,13 +1491,7 @@ export default function App() {
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Évolution Entrées vs Sorties</h3>
                   <div className="h-80">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={recettesChartData}>
-                        <defs>
-                          <linearGradient id="colorRec" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
+                      <LineChart data={recettesChartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
                         <XAxis dataKey="name" stroke={darkMode ? "#64748b" : "#94a3b8"} fontSize={12} tickLine={false} axisLine={false} />
                         <YAxis stroke={darkMode ? "#64748b" : "#94a3b8"} fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `${v/1000000}M`} />
@@ -1494,8 +1504,8 @@ export default function App() {
                           }}
                           itemStyle={{ fontSize: '12px', color: darkMode ? '#f1f5f9' : '#0f172a' }}
                         />
-                        <Area type="monotone" dataKey="total" stroke="#10b981" fillOpacity={1} fill="url(#colorRec)" name="Recettes" />
-                      </AreaChart>
+                        <Line type="monotone" dataKey="total" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Recettes" />
+                      </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
@@ -1682,8 +1692,8 @@ export default function App() {
           {/* TAB: FOURNISSEURS */}
           {activeTab === 'fournisseurs' && (
             <div className="space-y-8">
-              <div className="flex gap-4 border-b border-slate-200 dark:border-white/5">
-                {['GLOBAL', ...entities.filter(e => e.type === 'FOURNISSEUR').map(e => e.name)].map(tab => (
+              <div className="flex gap-4 border-b border-slate-200 dark:border-white/5 overflow-x-auto no-scrollbar">
+                {['GLOBAL', 'COMMANDES', 'FACTURES', ...entities.filter(e => e.type === 'FOURNISSEUR').map(e => e.name)].map(tab => (
                   <button
                     key={tab}
                     onClick={() => setSubTab(tab)}
@@ -1703,7 +1713,7 @@ export default function App() {
                     <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Évolution des Commandes (Global)</h3>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={fournisseursChartData}>
+                        <LineChart data={fournisseursChartData}>
                           <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
                           <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
                           <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `${v/1000}k`} />
@@ -1716,8 +1726,8 @@ export default function App() {
                             }} 
                             itemStyle={{ color: darkMode ? '#f8fafc' : '#0f172a' }}
                           />
-                          <Bar dataKey="commandes" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Commandes" />
-                        </BarChart>
+                          <Line type="monotone" dataKey="commandes" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Commandes" />
+                        </LineChart>
                       </ResponsiveContainer>
                     </div>
                   </div>
@@ -1755,27 +1765,126 @@ export default function App() {
                 </div>
               )}
 
-              {subTab !== 'GLOBAL' && (
-                <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Commandes: {subTab}</h3>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={fournisseursChartData.filter(d => d.name === subTab)}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
-                        <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
-                        <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `${v/1000}k`} />
-                        <Tooltip 
-                          contentStyle={{ 
-                            backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
-                            border: darkMode ? '1px solid #1e293b' : '1px solid #e2e8f0', 
-                            borderRadius: '12px',
-                            color: darkMode ? '#f8fafc' : '#0f172a'
-                          }} 
-                          itemStyle={{ color: darkMode ? '#f8fafc' : '#0f172a' }}
-                        />
-                        <Bar dataKey="commandes" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Commandes" />
-                      </BarChart>
-                    </ResponsiveContainer>
+              {subTab === 'COMMANDES' && (
+                <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white p-6 border-b border-slate-200 dark:border-white/5">Toutes les Commandes</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
+                          {userRole !== 'directrice' && (
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-white/5">
+                        {transactions.filter(t => t.type === 'COMMANDE').sort((a, b) => b.date.getTime() - a.date.getTime()).slice(0, 50).map((t) => (
+                          <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                            <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
+                            <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
+                            <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                            <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.description}</td>
+                            {userRole !== 'directrice' && (
+                              <td className="px-6 py-4 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button 
+                                    onClick={() => setEditingTransaction(t)}
+                                    className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
+                                  >
+                                    <Edit2 size={16} />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteTransaction(t.id)}
+                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {subTab !== 'GLOBAL' && subTab !== 'COMMANDES' && subTab !== 'FACTURES' && (
+                <div className="space-y-8">
+                  <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Commandes: {subTab}</h3>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={supplierSpecificChartData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
+                          <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
+                          <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `${v/1000}k`} />
+                          <Tooltip 
+                            contentStyle={{ 
+                              backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                              border: darkMode ? '1px solid #1e293b' : '1px solid #e2e8f0', 
+                              borderRadius: '12px',
+                              color: darkMode ? '#f8fafc' : '#0f172a'
+                            }} 
+                            itemStyle={{ color: darkMode ? '#f8fafc' : '#0f172a' }}
+                          />
+                          <Line type="monotone" dataKey="commandes" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Commandes" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white p-6 border-b border-slate-200 dark:border-white/5">Détail des Commandes: {subTab}</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
+                            {userRole !== 'directrice' && (
+                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 dark:divide-white/5">
+                          {transactions
+                            .filter(t => t.type === 'COMMANDE' && entities.find(e => e.id === t.entityId)?.name === subTab)
+                            .sort((a, b) => b.date.getTime() - a.date.getTime())
+                            .map((t) => (
+                            <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                              <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
+                              <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                              <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.description}</td>
+                              {userRole !== 'directrice' && (
+                                <td className="px-6 py-4 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button 
+                                      onClick={() => setEditingTransaction(t)}
+                                      className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
+                                    >
+                                      <Edit2 size={16} />
+                                    </button>
+                                    <button 
+                                      onClick={() => handleDeleteTransaction(t.id)}
+                                      className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1857,7 +1966,7 @@ export default function App() {
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Consommation Mensuelle {subTab}</h3>
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={dcssaChartData}>
+                    <LineChart data={dcssaChartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
                       <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
                       <YAxis stroke="#64748b" fontSize={12} />
@@ -1870,8 +1979,8 @@ export default function App() {
                         }} 
                         itemStyle={{ color: darkMode ? '#f8fafc' : '#0f172a' }}
                       />
-                      <Bar dataKey={subTab} fill="#3b82f6" radius={[4, 4, 0, 0]} name="Consommation" />
-                    </BarChart>
+                      <Line type="monotone" dataKey={subTab} stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Consommation" />
+                    </LineChart>
                   </ResponsiveContainer>
                 </div>
               </div>
