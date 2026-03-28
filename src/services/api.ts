@@ -1,6 +1,6 @@
-import { Transaction, Entity, AuditLog } from '../lib/data';
+import { Transaction, Entity, AuditLog, Backup } from '../lib/data';
 import { db, auth } from '../lib/firebase';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, limit, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, limit, writeBatch, where } from 'firebase/firestore';
 
 // Helper to simulate network delay for auth
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -217,4 +217,150 @@ export const api = {
       throw error;
     }
   },
+
+  async getBackups(): Promise<Backup[]> {
+    try {
+      const q = query(collection(db, 'backups'), orderBy('timestamp', 'desc'));
+      const querySnapshot = await getDocs(q);
+      return querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return { 
+          ...data, 
+          id: doc.id, 
+          timestamp: new Date(data.timestamp),
+          transactions: data.transactions.map((t: any) => ({ ...t, date: new Date(t.date) }))
+        } as Backup;
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'backups');
+      return [];
+    }
+  },
+
+  async createBackup(name: string, type: 'AUTO' | 'MANUAL' = 'MANUAL'): Promise<Backup> {
+    try {
+      const [transactions, entities] = await Promise.all([
+        this.getTransactions(),
+        this.getEntities()
+      ]);
+      
+      const payload = {
+        name,
+        type,
+        timestamp: new Date().toISOString(),
+        createdBy: auth.currentUser?.email || 'System',
+        transactions: transactions.map(t => ({ ...t, date: t.date.toISOString() })),
+        entities: entities
+      };
+      
+      const docRef = await addDoc(collection(db, 'backups'), payload);
+      
+      await this.addLog({
+        action: 'BACKUP',
+        targetType: 'SYSTEM',
+        targetId: docRef.id,
+        details: `Sauvegarde ${type} créée: ${name}`
+      });
+      
+      return { ...payload, id: docRef.id, timestamp: new Date(payload.timestamp), transactions, entities } as Backup;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'backups');
+      throw error;
+    }
+  },
+
+  async restoreBackup(backup: Backup): Promise<void> {
+    try {
+      // Note: writeBatch has a 500 operations limit.
+      // For a more robust solution, we should use multiple batches.
+      
+      // 1. Delete all current transactions
+      const currentTxs = await this.getTransactions();
+      const txChunks = [];
+      for (let i = 0; i < currentTxs.length; i += 450) {
+        txChunks.push(currentTxs.slice(i, i + 450));
+      }
+      
+      for (const chunk of txChunks) {
+        const batch = writeBatch(db);
+        chunk.forEach(t => batch.delete(doc(db, 'transactions', t.id)));
+        await batch.commit();
+      }
+      
+      // 2. Delete all current entities
+      const currentEntities = await this.getEntities();
+      const entBatch = writeBatch(db);
+      currentEntities.forEach(e => entBatch.delete(doc(db, 'entities', e.id)));
+      await entBatch.commit();
+      
+      // 3. Add transactions from backup
+      const backupTxChunks = [];
+      for (let i = 0; i < backup.transactions.length; i += 450) {
+        backupTxChunks.push(backup.transactions.slice(i, i + 450));
+      }
+      
+      for (const chunk of backupTxChunks) {
+        const batch = writeBatch(db);
+        chunk.forEach(t => {
+          const { id, ...data } = t;
+          const payload = { ...data, date: data.date.toISOString() };
+          batch.set(doc(collection(db, 'transactions')), payload);
+        });
+        await batch.commit();
+      }
+      
+      // 4. Add entities from backup
+      const entAddBatch = writeBatch(db);
+      backup.entities.forEach(e => {
+        const { id, ...data } = e;
+        entAddBatch.set(doc(collection(db, 'entities')), data);
+      });
+      await entAddBatch.commit();
+      
+      await this.addLog({
+        action: 'RESTORATION',
+        targetType: 'SYSTEM',
+        targetId: backup.id,
+        details: `Restauration effectuée à partir de la sauvegarde: ${backup.name}`
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'restoration');
+      throw error;
+    }
+  },
+
+  async checkAndCreateDailyBackup(): Promise<void> {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      // We check for any AUTO backup created today
+      const q = query(
+        collection(db, 'backups'), 
+        where('type', '==', 'AUTO'),
+        orderBy('timestamp', 'desc'),
+        limit(1)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      let shouldBackup = true;
+      
+      if (!querySnapshot.empty) {
+        const lastBackup = querySnapshot.docs[0].data();
+        const lastBackupDate = new Date(lastBackup.timestamp);
+        lastBackupDate.setHours(0, 0, 0, 0);
+        
+        if (lastBackupDate.getTime() === today.getTime()) {
+          shouldBackup = false;
+        }
+      }
+      
+      if (shouldBackup) {
+        const name = `Sauvegarde Automatique - ${today.toLocaleDateString('fr-FR')}`;
+        await this.createBackup(name, 'AUTO');
+      }
+    } catch (error) {
+      console.error('Failed to check/create daily backup:', error);
+    }
+  }
 };

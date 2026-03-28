@@ -56,12 +56,22 @@ export interface Entity {
 export interface AuditLog {
   id: string;
   timestamp: Date;
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'IMPORT' | 'RESTORATION';
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'IMPORT' | 'RESTORATION' | 'BACKUP';
   targetType: string;
   targetId: string;
   details: string;
   previousData?: any;
   newData?: any;
+}
+
+export interface Backup {
+  id: string;
+  timestamp: Date;
+  transactions: Transaction[];
+  entities: Entity[];
+  createdBy: string;
+  type: 'AUTO' | 'MANUAL';
+  name: string;
 }
 
 export const INITIAL_ENTITIES: Entity[] = [

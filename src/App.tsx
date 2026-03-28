@@ -40,7 +40,10 @@ import {
   Upload,
   Sun,
   Moon,
-  Menu
+  Menu,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -84,7 +87,7 @@ import { fr } from 'date-fns/locale';
 import XLSX from 'xlsx-js-style';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn, formatCurrency } from '@/src/lib/utils';
-import { Transaction, Entity, AuditLog, TransactionType, EntityType } from '@/src/lib/data';
+import { Transaction, Entity, AuditLog, TransactionType, EntityType, Backup } from '@/src/lib/data';
 import { api, OperationType } from '@/src/services/api';
 import { Toaster, toast } from 'sonner';
 import { jsPDF } from 'jspdf';
@@ -117,6 +120,54 @@ const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
 export default function App() {
   const [activeTab, setActiveTab] = useState('accueil');
   const [subTab, setSubTab] = useState<string>('');
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const getSortIcon = (key: string) => {
+    if (!sortConfig || sortConfig.key !== key) {
+      return <ArrowUpDown size={12} className="inline ml-1 opacity-20" />;
+    }
+    return sortConfig.direction === 'asc' ? 
+      <ArrowUp size={12} className="inline ml-1 text-emerald-500" /> : 
+      <ArrowDown size={12} className="inline ml-1 text-emerald-500" />;
+  };
+
+  const sortData = <T extends Record<string, any>>(data: T[]): T[] => {
+    if (!sortConfig) return data;
+    return [...data].sort((a, b) => {
+      let aValue = a[sortConfig.key];
+      let bValue = b[sortConfig.key];
+
+      // Special handling for entityId (Fournisseur/Assurance) to sort by name
+      if (sortConfig.key === 'entityId') {
+        aValue = entities.find(e => e.id === a.entityId)?.name || '';
+        bValue = entities.find(e => e.id === b.entityId)?.name || '';
+      }
+
+      if (aValue instanceof Date) aValue = aValue.getTime();
+      if (bValue instanceof Date) bValue = bValue.getTime();
+      
+      if (typeof aValue === 'string') aValue = aValue.toLowerCase();
+      if (typeof bValue === 'string') bValue = bValue.toLowerCase();
+
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
+  // Reset sort when changing tabs
+  useEffect(() => {
+    setSortConfig(null);
+  }, [activeTab, subTab]);
+
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('theme');
     return saved ? saved === 'dark' : true;
@@ -136,6 +187,9 @@ export default function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [backups, setBackups] = useState<Backup[]>([]);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaisieUnlocked, setIsSaisieUnlocked] = useState(false);
   const [isParametresUnlocked, setIsParametresUnlocked] = useState(false);
@@ -189,14 +243,22 @@ export default function App() {
     if (isLoggedIn) {
       const fetchData = async () => {
         try {
-          const [txs, ents, auditLogs] = await Promise.all([
+          const [txs, ents, auditLogs, bks] = await Promise.all([
             api.getTransactions(),
             api.getEntities(),
-            api.getLogs()
+            api.getLogs(),
+            api.getBackups()
           ]);
           setTransactions(txs);
           setEntities(ents);
           setLogs(auditLogs);
+          setBackups(bks);
+          
+          // Check for daily backup
+          await api.checkAndCreateDailyBackup();
+          // Refresh backups list if one was created
+          const updatedBackups = await api.getBackups();
+          setBackups(updatedBackups);
         } catch (error) {
           toast.error("Erreur lors du chargement des données");
         } finally {
@@ -973,6 +1035,83 @@ export default function App() {
     });
   };
 
+  const handleCreateManualBackup = async () => {
+    setIsBackingUp(true);
+    try {
+      const name = `Sauvegarde Manuelle - ${format(new Date(), 'dd/MM/yyyy HH:mm')}`;
+      const newBackup = await api.createBackup(name, 'MANUAL');
+      setBackups(prev => [newBackup, ...prev]);
+      toast.success("Sauvegarde créée avec succès");
+    } catch (error) {
+      toast.error("Erreur lors de la création de la sauvegarde");
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
+  const handleDownloadBackup = (backup: Backup) => {
+    const dataStr = JSON.stringify(backup, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    
+    const exportFileDefaultName = `backup_${format(backup.timestamp, 'yyyy-MM-dd_HHmm')}.json`;
+    
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+    toast.success("Téléchargement lancé");
+  };
+
+  const handleRestoreBackup = async (backup: Backup) => {
+    if (!window.confirm(`Êtes-vous sûr de vouloir restaurer les données à partir de "${backup.name}" ? Cette action écrasera toutes les données actuelles.`)) {
+      return;
+    }
+    
+    setIsRestoring(true);
+    try {
+      await api.restoreBackup(backup);
+      // Reload everything
+      const [txs, ents, auditLogs] = await Promise.all([
+        api.getTransactions(),
+        api.getEntities(),
+        api.getLogs()
+      ]);
+      setTransactions(txs);
+      setEntities(ents);
+      setLogs(auditLogs);
+      toast.success("Restauration effectuée avec succès");
+    } catch (error) {
+      toast.error("Erreur lors de la restauration");
+    } finally {
+      setIsRestoring(false);
+    }
+  };
+
+  const handleUploadBackup = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const content = e.target?.result as string;
+        const backup = JSON.parse(content) as Backup;
+        
+        // Basic validation
+        if (!backup.transactions || !backup.entities) {
+          throw new Error("Format de sauvegarde invalide");
+        }
+        
+        await handleRestoreBackup(backup);
+      } catch (error) {
+        toast.error("Fichier de sauvegarde invalide");
+      }
+    };
+    reader.readAsText(file);
+    // Reset input
+    event.target.value = '';
+  };
+  
   const handleSaveEntity = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -1613,14 +1752,13 @@ export default function App() {
                   <table className="w-full text-left">
                     <thead>
                       <tr className="bg-slate-50 dark:bg-white/2">
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Montant</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('description')}>Description {getSortIcon('description')}</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                      {transactions
-                        .filter(t => t.type === 'CONSOMMATION_IMPLANT')
+                      {sortData(transactions.filter(t => t.type === 'CONSOMMATION_IMPLANT'))
                         .slice(0, 5)
                         .map((t) => (
                         <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
@@ -1690,13 +1828,13 @@ export default function App() {
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Catégorie</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">% du Total</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('label')}>Catégorie {getSortIcon('label')}</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('val')}>Montant {getSortIcon('val')}</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('val')}>% du Total {getSortIcon('val')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                    {[
+                    {sortData([
                       { label: 'Total Espèce', val: recettesData.totalEspece, color: 'text-emerald-500', desc: 'Total encaissé en espèces' },
                       { label: 'Total Vente au Comptant', val: recettesData.totalVenteComptant, color: 'text-emerald-500', desc: 'Ventes payées 100% cash' },
                       { label: 'Part Assurée Tiers Payant', val: recettesData.partAssureeTiersPayant, color: 'text-blue-500', desc: 'Part payée par le patient (Assurance)' },
@@ -1704,7 +1842,7 @@ export default function App() {
                       { label: 'Part Assurance à Réglée', val: recettesData.partAssuranceAReglee, color: 'text-amber-500', desc: 'Part à payer par la mutuelle' },
                       { label: 'Total Vente à Crédit', val: recettesData.totalVenteACredit, color: 'text-amber-500', desc: 'Ventes à crédit patients' },
                       { label: 'Totale Remise', val: recettesData.totaleRemise, color: 'text-red-500', desc: 'Total des remises effectuées' },
-                    ].map((row) => (
+                    ]).map((row) => (
                       <tr key={row.label} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                         <td className="px-6 py-4">
                           <div className="text-sm font-medium text-slate-900 dark:text-white">{row.label}</div>
@@ -1784,15 +1922,15 @@ export default function App() {
                       <table className="w-full text-left">
                         <thead>
                           <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('name')}>Fournisseur {getSortIcon('name')}</th>
                             {Object.keys(fournisseursPivotData[0]).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
-                              <th key={month} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">{month}</th>
+                              <th key={month} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort(month)}>{month} {getSortIcon(month)}</th>
                             ))}
-                            <th className="px-6 py-4 text-[10px] font-bold text-emerald-500 uppercase tracking-wider">Total</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-emerald-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('total')}>Total {getSortIcon('total')}</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                          {fournisseursPivotData.map((row) => (
+                          {sortData(fournisseursPivotData).map((row) => (
                             <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                               <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{row.name}</td>
                               {Object.keys(row).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
@@ -1819,17 +1957,17 @@ export default function App() {
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('entityId')}>Fournisseur {getSortIcon('entityId')}</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('description')}>Description {getSortIcon('description')}</th>
                           {userRole !== 'directrice' && (
                             <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                           )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                        {transactions.filter(t => t.type === 'COMMANDE').sort((a, b) => b.date.getTime() - a.date.getTime()).slice(0, 50).map((t) => (
+                        {sortData(transactions.filter(t => t.type === 'COMMANDE').sort((a, b) => b.date.getTime() - a.date.getTime())).slice(0, 50).map((t) => (
                           <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                             <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
                             <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
@@ -1892,18 +2030,18 @@ export default function App() {
                       <table className="w-full text-left">
                         <thead>
                           <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('description')}>Description {getSortIcon('description')}</th>
                             {userRole !== 'directrice' && (
                               <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                             )}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                          {transactions
+                          {sortData(transactions
                             .filter(t => t.type === 'COMMANDE' && entities.find(e => e.id === t.entityId)?.name === subTab)
-                            .sort((a, b) => b.date.getTime() - a.date.getTime())
+                            .sort((a, b) => b.date.getTime() - a.date.getTime()))
                             .map((t) => (
                             <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                               <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
@@ -1941,17 +2079,17 @@ export default function App() {
                   <table className="w-full text-left">
                     <thead>
                       <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Statut</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('entityId')}>Fournisseur {getSortIcon('entityId')}</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('status')}>Statut {getSortIcon('status')}</th>
                         {userRole !== 'directrice' && (
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                         )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                      {transactions.filter(t => t.type === 'FACTURE').slice(0, 10).map((t) => (
+                      {sortData(transactions.filter(t => t.type === 'FACTURE')).slice(0, 10).map((t) => (
                         <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                           <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
                           <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
@@ -2036,16 +2174,16 @@ export default function App() {
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
                       {userRole !== 'directrice' && (
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                       )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                    {transactions
-                      .filter(t => t.type === (subTab === 'DCSSA' ? 'CONSOMMATION_DCSSA' : 'CONSOMMATION_KOUNDJOURE'))
+                    {sortData(transactions
+                      .filter(t => t.type === (subTab === 'DCSSA' ? 'CONSOMMATION_DCSSA' : 'CONSOMMATION_KOUNDJOURE')))
                       .slice(0, 10)
                       .map((t) => (
                       <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
@@ -2090,16 +2228,16 @@ export default function App() {
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('description')}>Description {getSortIcon('description')}</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
                       {userRole !== 'directrice' && (
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                       )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                    {transactions.filter(t => t.type === 'CONSOMMATION_IMPLANT').slice(0, 15).map((t) => (
+                    {sortData(transactions.filter(t => t.type === 'CONSOMMATION_IMPLANT')).slice(0, 15).map((t) => (
                       <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                         <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
                         <td className="px-6 py-4 text-sm text-slate-900 dark:text-white">{t.description}</td>
@@ -2198,17 +2336,17 @@ export default function App() {
                   <table className="w-full text-left">
                     <thead>
                       <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Assurance</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Motif</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('entityId')}>Assurance {getSortIcon('entityId')}</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('reason')}>Motif {getSortIcon('reason')}</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
                         {userRole !== 'directrice' && (
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                         )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                      {transactions.filter(t => t.type === 'REJET_ASSURANCE').slice(0, 15).map((t) => (
+                      {sortData(transactions.filter(t => t.type === 'REJET_ASSURANCE')).slice(0, 15).map((t) => (
                         <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                           <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
                           <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.reason}</td>
@@ -2249,15 +2387,15 @@ export default function App() {
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
                           {userRole !== 'directrice' && (
                             <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                           )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                        {transactions.filter(t => t.entityId === entities.find(e => e.name === subTab)?.id && t.type === 'CONSOMMATION_ASSURANCE').slice(0, 15).map((t) => (
+                        {sortData(transactions.filter(t => t.entityId === entities.find(e => e.name === subTab)?.id && t.type === 'CONSOMMATION_ASSURANCE')).slice(0, 15).map((t) => (
                           <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                             <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
                             <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
@@ -2822,6 +2960,89 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300 lg:col-span-2">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">Sauvegardes & Restauration</h3>
+                  <button 
+                    onClick={handleCreateManualBackup}
+                    disabled={isBackingUp}
+                    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all"
+                  >
+                    {isBackingUp ? <Clock size={14} className="animate-spin" /> : <Database size={14} />}
+                    Créer une sauvegarde
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  <div className="p-4 bg-slate-50 dark:bg-white/2 rounded-xl border border-slate-100 dark:border-white/5">
+                    <p className="text-xs font-bold text-slate-500 uppercase mb-2">Importer une sauvegarde</p>
+                    <label className="flex items-center justify-center gap-2 w-full border-2 border-dashed border-slate-200 dark:border-white/10 rounded-xl p-4 cursor-pointer hover:border-emerald-500 transition-colors group">
+                      <Upload size={20} className="text-slate-400 group-hover:text-emerald-500 transition-colors" />
+                      <span className="text-xs text-slate-500 group-hover:text-emerald-500 transition-colors">Choisir un fichier JSON</span>
+                      <input type="file" accept=".json" className="hidden" onChange={handleUploadBackup} />
+                    </label>
+                  </div>
+                  <div className="p-4 bg-slate-50 dark:bg-white/2 rounded-xl border border-slate-100 dark:border-white/5">
+                    <p className="text-xs font-bold text-slate-500 uppercase mb-2">Dernière sauvegarde</p>
+                    {backups.length > 0 ? (
+                      <div>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white">{backups[0].name}</p>
+                        <p className="text-[10px] text-slate-500 uppercase">{format(backups[0].timestamp, 'dd MMMM yyyy HH:mm', { locale: fr })}</p>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">Aucune sauvegarde disponible</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-white/5">
+                        <th className="pb-4 text-[10px] font-bold text-slate-500 uppercase">Date</th>
+                        <th className="pb-4 text-[10px] font-bold text-slate-500 uppercase">Nom</th>
+                        <th className="pb-4 text-[10px] font-bold text-slate-500 uppercase">Type</th>
+                        <th className="pb-4 text-[10px] font-bold text-slate-500 uppercase text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                      {backups.slice(0, 10).map(backup => (
+                        <tr key={backup.id} className="group">
+                          <td className="py-4 text-xs text-slate-500 font-mono">{format(backup.timestamp, 'dd/MM/yy HH:mm')}</td>
+                          <td className="py-4 text-xs font-bold text-slate-900 dark:text-white">{backup.name}</td>
+                          <td className="py-4">
+                            <span className={cn(
+                              "px-2 py-0.5 rounded text-[9px] font-bold uppercase",
+                              backup.type === 'AUTO' ? "bg-blue-500/10 text-blue-500" : "bg-purple-500/10 text-purple-500"
+                            )}>
+                              {backup.type}
+                            </span>
+                          </td>
+                          <td className="py-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button 
+                                onClick={() => handleDownloadBackup(backup)}
+                                className="p-1.5 text-slate-400 hover:text-emerald-500 transition-colors"
+                                title="Télécharger"
+                              >
+                                <Download size={14} />
+                              </button>
+                              <button 
+                                onClick={() => handleRestoreBackup(backup)}
+                                className="p-1.5 text-slate-400 hover:text-amber-500 transition-colors"
+                                title="Restaurer"
+                              >
+                                <History size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
 
@@ -2863,14 +3084,14 @@ export default function App() {
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-white/2">
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Horodatage</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Action</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cible</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Détails</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('timestamp')}>Horodatage {getSortIcon('timestamp')}</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('action')}>Action {getSortIcon('action')}</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('target')}>Cible {getSortIcon('target')}</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('details')}>Détails {getSortIcon('details')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                    {logs
+                    {sortData(logs
                       .filter(log => {
                         if (!logStartDate && !logEndDate) return true;
                         const logDate = startOfDay(log.timestamp);
@@ -2880,7 +3101,7 @@ export default function App() {
                         if (start && logDate < start) return false;
                         if (end && logDate > end) return false;
                         return true;
-                      })
+                      }))
                       .map((log) => (
                       <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                         <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400 font-mono">{format(log.timestamp, 'dd/MM/yy HH:mm:ss')}</td>
@@ -2890,7 +3111,9 @@ export default function App() {
                             log.action === 'CREATE' ? "bg-emerald-500/10 text-emerald-500" :
                             log.action === 'UPDATE' ? "bg-blue-500/10 text-blue-500" :
                             log.action === 'DELETE' ? "bg-red-500/10 text-red-500" :
-                            "bg-purple-500/10 text-purple-500"
+                            log.action === 'BACKUP' ? "bg-amber-500/10 text-amber-500" :
+                            log.action === 'RESTORATION' ? "bg-purple-500/10 text-purple-500" :
+                            "bg-slate-500/10 text-slate-500"
                           )}>
                             {log.action}
                           </span>
