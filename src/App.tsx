@@ -105,7 +105,7 @@ import 'jspdf-autotable';
 import { auth } from './lib/firebase';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword } from 'firebase/auth';
 
-type Period = 'JOUR' | 'SEMAINE' | 'QUINZAINE' | 'MOIS' | 'TRIMESTRE' | 'SEMESTRE' | 'ANNEE';
+type Period = 'JOUR' | 'SEMAINE' | 'QUINZAINE' | 'MOIS' | 'TRIMESTRE' | 'SEMESTRE' | 'ANNEE' | 'CUSTOM';
 
 const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
   { value: 'TOTAL_ESPECE', label: 'Total Espèce' },
@@ -517,7 +517,7 @@ export default function App() {
   };
 
   const previousFilteredTransactions = useMemo(() => {
-    if (dateRange) {
+    if (selectedPeriod === 'CUSTOM' && dateRange) {
       const start = new Date(dateRange.start);
       const end = new Date(dateRange.end);
       const diff = end.getTime() - start.getTime();
@@ -540,6 +540,7 @@ export default function App() {
       case 'TRIMESTRE': prevBaseDate = subMonths(baseDate, 3); break;
       case 'SEMESTRE': prevBaseDate = subMonths(baseDate, 6); break;
       case 'ANNEE': prevBaseDate = subYears(baseDate, 1); break;
+      default: prevBaseDate = subMonths(baseDate, 1);
     }
 
     let intervalStart: Date;
@@ -548,27 +549,35 @@ export default function App() {
     switch (selectedPeriod) {
       case 'JOUR': 
         intervalStart = startOfDay(prevBaseDate); 
+        intervalEnd = endOfDay(prevBaseDate);
         break;
       case 'SEMAINE': 
         intervalStart = startOfWeek(prevBaseDate, { weekStartsOn: 1 }); 
+        intervalEnd = endOfWeek(prevBaseDate, { weekStartsOn: 1 });
         break;
       case 'QUINZAINE': 
-        intervalStart = subDays(prevBaseDate, 14); 
+        intervalStart = prevBaseDate.getDate() <= 15 ? startOfMonth(prevBaseDate) : addDays(startOfMonth(prevBaseDate), 15);
+        intervalEnd = prevBaseDate.getDate() <= 15 ? endOfDay(addDays(startOfMonth(prevBaseDate), 14)) : endOfMonth(prevBaseDate);
         break;
       case 'MOIS': 
         intervalStart = startOfMonth(prevBaseDate); 
+        intervalEnd = endOfMonth(prevBaseDate);
         break;
       case 'TRIMESTRE': 
         intervalStart = startOfQuarter(prevBaseDate); 
+        intervalEnd = endOfQuarter(prevBaseDate);
         break;
       case 'SEMESTRE': 
         intervalStart = prevBaseDate.getMonth() < 6 ? startOfYear(prevBaseDate) : addMonths(startOfYear(prevBaseDate), 6); 
+        intervalEnd = prevBaseDate.getMonth() < 6 ? endOfDay(addDays(addMonths(startOfYear(prevBaseDate), 6), -1)) : endOfYear(prevBaseDate);
         break;
       case 'ANNEE': 
         intervalStart = startOfYear(prevBaseDate); 
+        intervalEnd = endOfYear(prevBaseDate);
         break;
       default: 
         intervalStart = startOfMonth(prevBaseDate);
+        intervalEnd = endOfMonth(prevBaseDate);
     }
     return transactions.filter(t => {
       const txDate = new Date(t.date);
@@ -578,7 +587,7 @@ export default function App() {
 
   // Global Filtering Logic
   const filteredTransactions = useMemo(() => {
-    if (dateRange) {
+    if (selectedPeriod === 'CUSTOM' && dateRange) {
       const start = startOfDay(new Date(dateRange.start));
       const end = endOfDay(new Date(dateRange.end));
       return transactions.filter(t => {
@@ -594,27 +603,35 @@ export default function App() {
     switch (selectedPeriod) {
       case 'JOUR': 
         intervalStart = startOfDay(baseDate); 
+        intervalEnd = endOfDay(baseDate);
         break;
       case 'SEMAINE': 
         intervalStart = startOfWeek(baseDate, { weekStartsOn: 1 }); 
+        intervalEnd = endOfWeek(baseDate, { weekStartsOn: 1 });
         break;
       case 'QUINZAINE': 
-        intervalStart = subDays(baseDate, 14); 
+        intervalStart = baseDate.getDate() <= 15 ? startOfMonth(baseDate) : addDays(startOfMonth(baseDate), 15);
+        intervalEnd = baseDate.getDate() <= 15 ? endOfDay(addDays(startOfMonth(baseDate), 14)) : endOfMonth(baseDate);
         break;
       case 'MOIS': 
         intervalStart = startOfMonth(baseDate); 
+        intervalEnd = endOfMonth(baseDate);
         break;
       case 'TRIMESTRE': 
         intervalStart = startOfQuarter(baseDate); 
+        intervalEnd = endOfQuarter(baseDate);
         break;
       case 'SEMESTRE': 
         intervalStart = baseDate.getMonth() < 6 ? startOfYear(baseDate) : addMonths(startOfYear(baseDate), 6); 
+        intervalEnd = baseDate.getMonth() < 6 ? endOfDay(addDays(addMonths(startOfYear(baseDate), 6), -1)) : endOfYear(baseDate);
         break;
       case 'ANNEE': 
         intervalStart = startOfYear(baseDate); 
+        intervalEnd = endOfYear(baseDate);
         break;
       default: 
         intervalStart = startOfMonth(baseDate);
+        intervalEnd = endOfMonth(baseDate);
     }
     return transactions.filter(t => {
       const txDate = new Date(t.date);
@@ -710,76 +727,66 @@ export default function App() {
     const baseDate = new Date(selectedDate);
     let filtered: Transaction[] = filteredTransactions;
     let groupingFn: (date: Date) => Date;
-    let labelFormat: string;
+    let labelFormat: string = 'dd/MM';
     let intervalStart: Date;
     let intervalEnd: Date;
+    let customLabelFn: ((date: Date) => string) | null = null;
     
-    if (dateRange) {
-      intervalStart = startOfDay(new Date(dateRange.start));
-      intervalEnd = endOfDay(new Date(dateRange.end));
-      const diffDays = differenceInDays(intervalEnd, intervalStart);
-      if (diffDays <= 1) {
-        groupingFn = startOfHour;
-        labelFormat = 'HH:mm';
-      } else if (diffDays <= 31) {
-        groupingFn = startOfDay;
-        labelFormat = 'dd/MM';
-      } else if (diffDays <= 365) {
-        groupingFn = startOfMonth;
-        labelFormat = 'MMM';
-      } else {
-        groupingFn = startOfYear;
-        labelFormat = 'yyyy';
-      }
-    } else if (selectedPeriod === 'JOUR') {
-      intervalStart = startOfDay(baseDate);
-      intervalEnd = endOfDay(baseDate);
-      groupingFn = startOfHour;
-      labelFormat = 'HH:mm';
-    } else {
+    if (selectedPeriod !== 'CUSTOM') {
       switch (selectedPeriod) {
-        case 'SEMAINE':
-          intervalStart = startOfWeek(baseDate, { weekStartsOn: 1 });
+        case 'JOUR':
+          intervalStart = startOfDay(baseDate);
           intervalEnd = endOfDay(baseDate);
           groupingFn = startOfDay;
           labelFormat = 'dd/MM';
           break;
+        case 'SEMAINE':
+          intervalStart = startOfWeek(baseDate, { weekStartsOn: 1 });
+          intervalEnd = endOfWeek(baseDate, { weekStartsOn: 1 });
+          groupingFn = (d) => startOfWeek(d, { weekStartsOn: 1 });
+          customLabelFn = (d) => `S${format(d, 'ww')}`;
+          break;
         case 'QUINZAINE':
-          intervalStart = subDays(baseDate, 14);
-          intervalEnd = endOfDay(baseDate);
-          groupingFn = startOfDay;
-          labelFormat = 'dd/MM';
+          intervalStart = startOfMonth(baseDate);
+          intervalEnd = endOfMonth(baseDate);
+          groupingFn = (d) => d.getDate() <= 15 ? startOfMonth(d) : addDays(startOfMonth(d), 15);
+          customLabelFn = (d) => d.getDate() <= 15 ? `01-15 ${format(d, 'MMM', { locale: fr })}` : `16-${format(endOfMonth(d), 'dd')} ${format(d, 'MMM', { locale: fr })}`;
           break;
         case 'MOIS':
           intervalStart = startOfMonth(baseDate);
-          intervalEnd = endOfDay(baseDate);
-          groupingFn = startOfDay;
-          labelFormat = 'dd';
+          intervalEnd = endOfMonth(baseDate);
+          groupingFn = startOfMonth;
+          labelFormat = 'MMM yy';
           break;
         case 'TRIMESTRE':
           intervalStart = startOfQuarter(baseDate);
-          intervalEnd = endOfDay(baseDate);
-          groupingFn = startOfMonth;
-          labelFormat = 'MMM';
+          intervalEnd = endOfQuarter(baseDate);
+          groupingFn = startOfQuarter;
+          customLabelFn = (d) => `T${Math.floor(d.getMonth() / 3) + 1} ${format(d, 'yy')}`;
           break;
         case 'SEMESTRE':
           intervalStart = baseDate.getMonth() < 6 ? startOfYear(baseDate) : addMonths(startOfYear(baseDate), 6);
-          intervalEnd = endOfDay(baseDate);
-          groupingFn = startOfMonth;
-          labelFormat = 'MMM';
+          intervalEnd = baseDate.getMonth() < 6 ? endOfDay(addDays(addMonths(startOfYear(baseDate), 6), -1)) : endOfYear(baseDate);
+          groupingFn = (d) => d.getMonth() < 6 ? startOfYear(d) : addMonths(startOfYear(d), 6);
+          customLabelFn = (d) => d.getMonth() < 6 ? `Sem 1 ${format(d, 'yy')}` : `Sem 2 ${format(d, 'yy')}`;
           break;
         case 'ANNEE':
           intervalStart = startOfYear(baseDate);
-          intervalEnd = endOfDay(baseDate);
-          groupingFn = startOfMonth;
-          labelFormat = 'MMM';
+          intervalEnd = endOfYear(baseDate);
+          groupingFn = startOfYear;
+          labelFormat = 'yyyy';
           break;
         default:
           intervalStart = startOfMonth(baseDate);
-          intervalEnd = endOfDay(baseDate);
-          groupingFn = startOfDay;
-          labelFormat = 'dd MMM';
+          intervalEnd = endOfMonth(baseDate);
+          groupingFn = startOfMonth;
+          labelFormat = 'MMM yy';
       }
+    } else {
+      intervalStart = startOfDay(new Date(dateRange?.start || selectedDate));
+      intervalEnd = endOfDay(new Date(dateRange?.end || selectedDate));
+      groupingFn = startOfDay;
+      labelFormat = 'dd/MM';
     }
     
     const groups: Record<string, any> = {};
@@ -791,7 +798,7 @@ export default function App() {
       if (!groups[key]) {
         groups[key] = {
           date: groupingFn(current),
-          name: format(groupingFn(current), labelFormat, { locale: fr }),
+          name: customLabelFn ? customLabelFn(current) : format(groupingFn(current), labelFormat, { locale: fr }),
           comptants: 0,
           tiers: 0,
           credit: 0,
@@ -806,6 +813,13 @@ export default function App() {
         };
       }
       if (groupingFn === startOfHour) current = addHours(current, 1);
+      else if (selectedPeriod === 'QUINZAINE') {
+        if (current.getDate() <= 15) current = addDays(startOfMonth(current), 15);
+        else current = addMonths(startOfMonth(current), 1);
+      }
+      else if (selectedPeriod === 'SEMAINE') current = addDays(current, 7);
+      else if (selectedPeriod === 'TRIMESTRE') current = addMonths(current, 3);
+      else if (selectedPeriod === 'SEMESTRE') current = addMonths(current, 6);
       else if (groupingFn === startOfDay) current = addDays(current, 1);
       else if (groupingFn === startOfMonth) current = addMonths(current, 1);
       else current = addYears(current, 1);
@@ -1792,12 +1806,15 @@ export default function App() {
                 <button
                   key={p}
                   onClick={() => {
-                    setSelectedPeriod(p);
-                    setDateRange(null);
+                    if (selectedPeriod === p) {
+                      setSelectedPeriod('CUSTOM');
+                    } else {
+                      setSelectedPeriod(p);
+                    }
                   }}
                   className={cn(
                     "px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all whitespace-nowrap",
-                    selectedPeriod === p && !dateRange ? "bg-emerald-600 text-white shadow-lg" : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                    selectedPeriod === p ? "bg-emerald-600 text-white shadow-lg" : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
                   )}
                 >
                   {p}
@@ -3504,10 +3521,10 @@ export default function App() {
                         </select>
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto max-h-[400px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-white/10">
                     <table className="w-full text-left">
-                      <thead>
-                        <tr className="border-b border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-white/2">
+                      <thead className="sticky top-0 z-10">
+                        <tr className="border-b border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-[#0e1629]">
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Type</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Détails</th>
