@@ -25,6 +25,7 @@ import {
   Lock,
   Unlock,
   ChevronRight,
+  LineChart as LineChartIcon,
   Search,
   Filter,
   Download,
@@ -64,24 +65,33 @@ import {
 } from 'recharts';
 import { 
   format, 
+  startOfHour,
+  addHours,
   startOfDay, 
   startOfWeek, 
   startOfMonth, 
   startOfQuarter, 
   startOfYear, 
+  endOfDay,
+  endOfWeek,
+  endOfQuarter,
   isSameDay, 
   isWithinInterval, 
   subDays,
+  subMonths,
+  subYears,
   eachDayOfInterval,
   addDays,
   addMonths,
+  addYears,
   isSameWeek,
   isSameMonth,
   isSameQuarter,
   isSameYear,
   parseISO,
   endOfMonth,
-  endOfYear
+  endOfYear,
+  differenceInDays
 } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import XLSX from 'xlsx-js-style';
@@ -104,6 +114,7 @@ const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
   { value: 'TOTAL_VENTE_TIERS_PAYANT', label: 'Total Vente Tiers Payant' },
   { value: 'PART_ASSURANCE_A_REGLEE', label: 'Part Assurance à Réglée' },
   { value: 'TOTAL_VENTE_A_CREDIT', label: 'Total Vente à Crédit' },
+  { value: 'TOTAL_TPE', label: 'Total TPE' },
   { value: 'TOTALE_REMISE', label: 'Totale Remise' },
   { value: 'TOTALE_TOUTES_VENTES_CONFONDU', label: 'Totale Toutes Ventes Confondu' },
   { value: 'PEREMPTION_AVARIE', label: 'Péremption & Avariés' },
@@ -120,6 +131,7 @@ const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
 export default function App() {
   const [activeTab, setActiveTab] = useState('accueil');
   const [subTab, setSubTab] = useState<string>('');
+  const [expandedSupplierId, setExpandedSupplierId] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
 
   const handleSort = (key: string) => {
@@ -184,6 +196,7 @@ export default function App() {
   }, [darkMode]);
 
   const [saisieSection, setSaisieSection] = useState<'VENTES' | 'FOURNISSEURS' | 'CONSOMMATIONS' | 'REJETS' | 'PEREMPTIONS'>('VENTES');
+  const [saisieConsommationType, setSaisieConsommationType] = useState('CONSOMMATION_DCSSA');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -196,7 +209,8 @@ export default function App() {
   const [passwordModal, setPasswordModal] = useState<{ open: boolean; target: 'saisie' | 'parametres'; onUnlock: () => void } | null>(null);
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
-  const [selectedPeriod, setSelectedPeriod] = useState<Period>('MOIS');
+  const [selectedPeriod, setSelectedPeriod] = useState<Period>('SEMAINE');
+  const [dateRange, setDateRange] = useState<{ start: string; end: string } | null>(null);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -260,6 +274,9 @@ export default function App() {
     if (isLoggedIn) {
       const fetchData = async () => {
         try {
+          // Test Firestore connection
+          await api.testConnection();
+
           const [txs, ents, auditLogs, bks] = await Promise.all([
             api.getTransactions(),
             api.getEntities(),
@@ -499,50 +516,113 @@ export default function App() {
     }
   };
 
+  const previousFilteredTransactions = useMemo(() => {
+    if (dateRange) {
+      const start = new Date(dateRange.start);
+      const end = new Date(dateRange.end);
+      const diff = end.getTime() - start.getTime();
+      const prevStart = new Date(start.getTime() - diff - 86400000); // subtract 1 day more
+      const prevEnd = new Date(start.getTime() - 86400000);
+      return transactions.filter(t => {
+        const txDate = new Date(t.date);
+        return txDate >= startOfDay(prevStart) && txDate <= endOfDay(prevEnd);
+      });
+    }
+
+    const baseDate = new Date(selectedDate);
+    let prevBaseDate = new Date(baseDate);
+
+    switch (selectedPeriod) {
+      case 'JOUR': prevBaseDate = subDays(baseDate, 1); break;
+      case 'SEMAINE': prevBaseDate = subDays(baseDate, 7); break;
+      case 'QUINZAINE': prevBaseDate = subDays(baseDate, 15); break;
+      case 'MOIS': prevBaseDate = subMonths(baseDate, 1); break;
+      case 'TRIMESTRE': prevBaseDate = subMonths(baseDate, 3); break;
+      case 'SEMESTRE': prevBaseDate = subMonths(baseDate, 6); break;
+      case 'ANNEE': prevBaseDate = subYears(baseDate, 1); break;
+    }
+
+    let intervalStart: Date;
+    let intervalEnd: Date = endOfDay(prevBaseDate);
+
+    switch (selectedPeriod) {
+      case 'JOUR': 
+        intervalStart = startOfDay(prevBaseDate); 
+        break;
+      case 'SEMAINE': 
+        intervalStart = startOfWeek(prevBaseDate, { weekStartsOn: 1 }); 
+        break;
+      case 'QUINZAINE': 
+        intervalStart = subDays(prevBaseDate, 14); 
+        break;
+      case 'MOIS': 
+        intervalStart = startOfMonth(prevBaseDate); 
+        break;
+      case 'TRIMESTRE': 
+        intervalStart = startOfQuarter(prevBaseDate); 
+        break;
+      case 'SEMESTRE': 
+        intervalStart = prevBaseDate.getMonth() < 6 ? startOfYear(prevBaseDate) : addMonths(startOfYear(prevBaseDate), 6); 
+        break;
+      case 'ANNEE': 
+        intervalStart = startOfYear(prevBaseDate); 
+        break;
+      default: 
+        intervalStart = startOfMonth(prevBaseDate);
+    }
+    return transactions.filter(t => {
+      const txDate = new Date(t.date);
+      return txDate >= intervalStart && txDate <= intervalEnd;
+    });
+  }, [transactions, selectedPeriod, selectedDate, dateRange]);
+
   // Global Filtering Logic
   const filteredTransactions = useMemo(() => {
-    const now = new Date();
-    let intervalStart: Date;
-    switch (selectedPeriod) {
-      case 'JOUR': intervalStart = startOfDay(now); break;
-      case 'SEMAINE': intervalStart = startOfWeek(now, { weekStartsOn: 1 }); break;
-      case 'QUINZAINE': intervalStart = now.getDate() <= 15 ? startOfMonth(now) : addDays(startOfMonth(now), 15); break;
-      case 'MOIS': intervalStart = startOfMonth(now); break;
-      case 'TRIMESTRE': intervalStart = startOfQuarter(now); break;
-      case 'SEMESTRE': intervalStart = now.getMonth() < 6 ? startOfYear(now) : addDays(startOfYear(now), 182); break;
-      case 'ANNEE': intervalStart = startOfYear(now); break;
-      default: intervalStart = startOfMonth(now);
+    if (dateRange) {
+      const start = startOfDay(new Date(dateRange.start));
+      const end = endOfDay(new Date(dateRange.end));
+      return transactions.filter(t => {
+        const txDate = new Date(t.date);
+        return txDate >= start && txDate <= end;
+      });
     }
-    return transactions.filter(t => t.date >= intervalStart);
-  }, [transactions, selectedPeriod]);
 
-  // KPIs for Accueil
-  const kpis = useMemo(() => {
-    const totalRecettes = filteredTransactions
-      .filter(t => ['COMPTANTS', 'PART_ASSUREE', 'TIERS_PAYANT', 'TOTAL_ESPECE', 'TOTAL_VENTE_COMPTANT', 'PART_ASSUREE_TIERS_PAYANT', 'PART_ASSURANCE_A_REGLEE'].includes(t.type))
-      .reduce((sum, t) => sum + t.amount, 0);
-    
-    const totalCommandes = filteredTransactions
-      .filter(t => t.type === 'COMMANDE')
-      .reduce((sum, t) => sum + t.amount, 0);
+    const baseDate = new Date(selectedDate);
+    let intervalStart: Date;
+    let intervalEnd: Date = endOfDay(baseDate);
 
-    const totalCredit = filteredTransactions
-      .filter(t => ['CREDIT', 'TOTAL_VENTE_A_CREDIT'].includes(t.type))
-      .reduce((sum, t) => sum + t.amount, 0);
+    switch (selectedPeriod) {
+      case 'JOUR': 
+        intervalStart = startOfDay(baseDate); 
+        break;
+      case 'SEMAINE': 
+        intervalStart = startOfWeek(baseDate, { weekStartsOn: 1 }); 
+        break;
+      case 'QUINZAINE': 
+        intervalStart = subDays(baseDate, 14); 
+        break;
+      case 'MOIS': 
+        intervalStart = startOfMonth(baseDate); 
+        break;
+      case 'TRIMESTRE': 
+        intervalStart = startOfQuarter(baseDate); 
+        break;
+      case 'SEMESTRE': 
+        intervalStart = baseDate.getMonth() < 6 ? startOfYear(baseDate) : addMonths(startOfYear(baseDate), 6); 
+        break;
+      case 'ANNEE': 
+        intervalStart = startOfYear(baseDate); 
+        break;
+      default: 
+        intervalStart = startOfMonth(baseDate);
+    }
+    return transactions.filter(t => {
+      const txDate = new Date(t.date);
+      return txDate >= intervalStart && txDate <= intervalEnd;
+    });
+  }, [transactions, selectedPeriod, selectedDate, dateRange]);
 
-    const totalRejets = filteredTransactions
-      .filter(t => t.type === 'REJET_ASSURANCE')
-      .reduce((sum, t) => sum + t.amount, 0);
-
-    const totalImplants = filteredTransactions
-      .filter(t => t.type === 'CONSOMMATION_IMPLANT')
-      .reduce((sum, t) => sum + t.amount, 0);
-
-    return { totalRecettes, totalCommandes, totalCredit, totalRejets, totalImplants };
-  }, [filteredTransactions]);
-
-  // Recettes Data
-  const recettesData = useMemo(() => {
+  const calculateDashboardMetrics = (txs: Transaction[]) => {
     const categories = {
       TOTAL_ESPECE: 0,
       TOTAL_VENTE_COMPTANT: 0,
@@ -550,143 +630,298 @@ export default function App() {
       TOTAL_VENTE_TIERS_PAYANT: 0,
       PART_ASSURANCE_A_REGLEE: 0,
       TOTAL_VENTE_A_CREDIT: 0,
+      TOTAL_TPE: 0,
       TOTALE_REMISE: 0,
       TOTALE_TOUTES_VENTES_CONFONDU: 0,
       PEREMPTION_AVARIE: 0,
-      // Keep old ones for backward compatibility if needed
       COMPTANTS: 0,
       PART_ASSUREE: 0,
       TIERS_PAYANT: 0,
       CREDIT: 0,
-      REMISE: 0
+      REMISE: 0,
+      COMMANDE: 0,
+      CONSOMMATION_DCSSA: 0,
+      CONSOMMATION_IMPLANT: 0,
+      REJET_ASSURANCE: 0
     };
-    filteredTransactions.forEach(t => {
+    
+    txs.forEach(t => {
       if (t.type in categories) {
         categories[t.type as keyof typeof categories] += t.amount;
       }
     });
-    
-    // If there are old transactions, map them to the new logic
-    const totalEspece = categories.TOTAL_ESPECE + categories.COMPTANTS + categories.PART_ASSUREE;
-    const totalVenteComptant = categories.TOTAL_VENTE_COMPTANT + categories.COMPTANTS;
+
+    const totalEspece = categories.TOTAL_ESPECE;
     const partAssureeTiersPayant = categories.PART_ASSUREE_TIERS_PAYANT + categories.PART_ASSUREE;
-    const totalVenteTiersPayant = categories.TOTAL_VENTE_TIERS_PAYANT + categories.PART_ASSUREE + categories.TIERS_PAYANT;
+    const totalVenteComptant = totalEspece - partAssureeTiersPayant;
     const partAssuranceAReglee = categories.PART_ASSURANCE_A_REGLEE + categories.TIERS_PAYANT;
+    const totalVenteTiersPayant = partAssureeTiersPayant + partAssuranceAReglee;
     const totalVenteACredit = categories.TOTAL_VENTE_A_CREDIT + categories.CREDIT;
+    const totalTPE = categories.TOTAL_TPE;
     const totaleRemise = categories.TOTALE_REMISE + categories.REMISE;
-    const totalGlobal = categories.TOTALE_TOUTES_VENTES_CONFONDU + categories.COMPTANTS + categories.PART_ASSUREE + categories.TIERS_PAYANT + categories.CREDIT;
     const peremptionAvarie = categories.PEREMPTION_AVARIE;
+    const totalCommandes = categories.COMMANDE;
+    const consommationDCSSA = categories.CONSOMMATION_DCSSA;
+    const consommationImplant = categories.CONSOMMATION_IMPLANT;
+    const rejetsAssurance = categories.REJET_ASSURANCE;
+
+    // Logic for totalGlobal (Chiffre d'affaires / Totale Toutes Ventes Confondu)
+    // Total Vente = Total Vente Tier Payant + Credit + Total Vente Comptant
+    const chiffreAffaires = totalVenteTiersPayant + totalVenteACredit + totalVenteComptant;
+
+    const recettesEncaisses = totalEspece + totalTPE;
 
     return { 
       ...categories, 
-      total: totalGlobal,
       totalEspece,
       totalVenteComptant,
       partAssureeTiersPayant,
       totalVenteTiersPayant,
       partAssuranceAReglee,
       totalVenteACredit,
+      totalTPE,
       totaleRemise,
-      totalGlobal,
-      peremptionAvarie
+      chiffreAffaires,
+      recettesEncaisses,
+      totalCommandes,
+      peremptionAvarie,
+      consommationDCSSA,
+      consommationImplant,
+      rejetsAssurance
     };
-  }, [filteredTransactions]);
+  };
+
+  const metrics = useMemo(() => calculateDashboardMetrics(filteredTransactions), [filteredTransactions]);
+  const prevMetrics = useMemo(() => calculateDashboardMetrics(previousFilteredTransactions), [previousFilteredTransactions]);
+
+  const calculateGrowth = (current: number, previous: number) => {
+    if (previous === 0) {
+      if (current === 0) return 0;
+      return current > 0 ? 100 : -100;
+    }
+    return ((current - previous) / Math.abs(previous)) * 100;
+  };
+
+  // Recettes Data (alias for metrics to avoid changing too many variables)
+  const recettesData = { ...metrics, totalGlobal: metrics.chiffreAffaires };
 
   // Chart Data for Recettes (follows selectedPeriod)
   const recettesChartData = useMemo(() => {
-    const now = new Date();
-    let filtered: Transaction[] = [];
+    const baseDate = new Date(selectedDate);
+    let filtered: Transaction[] = filteredTransactions;
     let groupingFn: (date: Date) => Date;
     let labelFormat: string;
-    if (selectedPeriod === 'JOUR') {
-      groupingFn = startOfDay;
-      labelFormat = 'dd MMM';
-      const targetDate = new Date(selectedDate);
-      filtered = transactions.filter(t => isSameDay(t.date, targetDate));
+    let intervalStart: Date;
+    let intervalEnd: Date;
+    
+    if (dateRange) {
+      intervalStart = startOfDay(new Date(dateRange.start));
+      intervalEnd = endOfDay(new Date(dateRange.end));
+      const diffDays = differenceInDays(intervalEnd, intervalStart);
+      if (diffDays <= 1) {
+        groupingFn = startOfHour;
+        labelFormat = 'HH:mm';
+      } else if (diffDays <= 31) {
+        groupingFn = startOfDay;
+        labelFormat = 'dd/MM';
+      } else if (diffDays <= 365) {
+        groupingFn = startOfMonth;
+        labelFormat = 'MMM';
+      } else {
+        groupingFn = startOfYear;
+        labelFormat = 'yyyy';
+      }
+    } else if (selectedPeriod === 'JOUR') {
+      intervalStart = startOfDay(baseDate);
+      intervalEnd = endOfDay(baseDate);
+      groupingFn = startOfHour;
+      labelFormat = 'HH:mm';
     } else {
-      let intervalStart: Date;
       switch (selectedPeriod) {
         case 'SEMAINE':
-          intervalStart = subDays(now, 60); // Show last 8 weeks
-          groupingFn = (d) => startOfWeek(d, { weekStartsOn: 1 });
+          intervalStart = startOfWeek(baseDate, { weekStartsOn: 1 });
+          intervalEnd = endOfDay(baseDate);
+          groupingFn = startOfDay;
           labelFormat = 'dd/MM';
           break;
         case 'QUINZAINE':
-          intervalStart = subDays(now, 120);
-          groupingFn = (d) => d.getDate() <= 15 ? startOfMonth(d) : addDays(startOfMonth(d), 15);
+          intervalStart = subDays(baseDate, 14);
+          intervalEnd = endOfDay(baseDate);
+          groupingFn = startOfDay;
           labelFormat = 'dd/MM';
           break;
         case 'MOIS':
-          intervalStart = startOfYear(now);
+          intervalStart = startOfMonth(baseDate);
+          intervalEnd = endOfDay(baseDate);
+          groupingFn = startOfDay;
+          labelFormat = 'dd';
+          break;
+        case 'TRIMESTRE':
+          intervalStart = startOfQuarter(baseDate);
+          intervalEnd = endOfDay(baseDate);
           groupingFn = startOfMonth;
           labelFormat = 'MMM';
           break;
-        case 'TRIMESTRE':
-          intervalStart = subDays(now, 730);
-          groupingFn = startOfQuarter;
-          labelFormat = 'QQQ yyyy';
-          break;
         case 'SEMESTRE':
-          intervalStart = subDays(now, 1825);
-          groupingFn = (d) => d.getMonth() < 6 ? startOfYear(d) : addMonths(startOfYear(d), 6);
-          labelFormat = 'S';
+          intervalStart = baseDate.getMonth() < 6 ? startOfYear(baseDate) : addMonths(startOfYear(baseDate), 6);
+          intervalEnd = endOfDay(baseDate);
+          groupingFn = startOfMonth;
+          labelFormat = 'MMM';
           break;
         case 'ANNEE':
-          intervalStart = subDays(now, 1825); // 5 years
-          groupingFn = startOfYear;
-          labelFormat = 'yyyy';
+          intervalStart = startOfYear(baseDate);
+          intervalEnd = endOfDay(baseDate);
+          groupingFn = startOfMonth;
+          labelFormat = 'MMM';
           break;
         default:
-          intervalStart = startOfMonth(now);
+          intervalStart = startOfMonth(baseDate);
+          intervalEnd = endOfDay(baseDate);
           groupingFn = startOfDay;
           labelFormat = 'dd MMM';
       }
-      filtered = transactions.filter(t => t.date >= intervalStart);
     }
     
     const groups: Record<string, any> = {};
 
-    filtered.forEach(t => {
-      const key = groupingFn(t.date).toISOString();
+    // Pre-populate groups to ensure all points are shown in the chart
+    let current = new Date(intervalStart);
+    while (current <= intervalEnd) {
+      const key = groupingFn(current).toISOString();
       if (!groups[key]) {
-        let name = format(groupingFn(t.date), labelFormat, { locale: fr });
-        if (selectedPeriod === 'SEMESTRE') {
-          name = groupingFn(t.date).getMonth() < 6 ? `S1 ${format(groupingFn(t.date), 'yyyy')}` : `S2 ${format(groupingFn(t.date), 'yyyy')}`;
-        } else if (selectedPeriod === 'QUINZAINE') {
-          const d = groupingFn(t.date);
-          const isFirstHalf = d.getDate() <= 15;
-          const month = format(d, 'MMM', { locale: fr });
-          name = isFirstHalf ? `1-15 ${month}` : `16-fin ${month}`;
-        }
         groups[key] = {
-          date: groupingFn(t.date),
-          name: name,
+          date: groupingFn(current),
+          name: format(groupingFn(current), labelFormat, { locale: fr }),
           comptants: 0,
           tiers: 0,
           credit: 0,
+          tpe: 0,
           remises: 0,
           commandes: 0,
-          total: 0
+          dcssa: 0,
+          koundjoure: 0,
+          total: 0,
+          entrees: 0,
+          sorties: 0
         };
       }
-      if (t.type === 'COMPTANTS' || t.type === 'PART_ASSUREE' || t.type === 'TOTAL_ESPECE' || t.type === 'TOTAL_VENTE_COMPTANT' || t.type === 'PART_ASSUREE_TIERS_PAYANT') {
-        groups[key].comptants += t.amount;
-        groups[key].total += t.amount;
+      if (groupingFn === startOfHour) current = addHours(current, 1);
+      else if (groupingFn === startOfDay) current = addDays(current, 1);
+      else if (groupingFn === startOfMonth) current = addMonths(current, 1);
+      else current = addYears(current, 1);
+    }
+
+    filtered.forEach(t => {
+      const key = groupingFn(t.date).toISOString();
+      if (!groups[key]) return;
+      
+      if (['TOTAL_VENTE_COMPTANT', 'COMPTANTS'].includes(t.type)) {
+        if (t.type === 'TOTAL_VENTE_COMPTANT') {
+          groups[key].comptants += t.amount;
+          groups[key].total += t.amount;
+          groups[key].entrees += t.amount;
+        } else if (!filtered.some(f => f.type === 'TOTAL_VENTE_COMPTANT' && isSameDay(f.date, t.date))) {
+          groups[key].comptants += t.amount;
+          groups[key].total += t.amount;
+          groups[key].entrees += t.amount;
+        }
       }
-      if (t.type === 'TIERS_PAYANT' || t.type === 'PART_ASSURANCE_A_REGLEE') {
-        groups[key].tiers += t.amount;
-        groups[key].total += t.amount;
+      if (['TOTAL_VENTE_TIERS_PAYANT', 'TIERS_PAYANT'].includes(t.type)) {
+        if (t.type === 'TOTAL_VENTE_TIERS_PAYANT') {
+          groups[key].tiers += t.amount;
+          groups[key].total += t.amount;
+          groups[key].entrees += t.amount;
+        } else if (!filtered.some(f => f.type === 'TOTAL_VENTE_TIERS_PAYANT' && isSameDay(f.date, t.date))) {
+          groups[key].tiers += t.amount;
+          groups[key].total += t.amount;
+          groups[key].entrees += t.amount;
+        }
       }
-      if (t.type === 'CREDIT' || t.type === 'TOTAL_VENTE_A_CREDIT') {
-        groups[key].credit += t.amount;
+      if (['TOTAL_VENTE_A_CREDIT', 'CREDIT'].includes(t.type)) {
+        if (t.type === 'TOTAL_VENTE_A_CREDIT') {
+          groups[key].credit += t.amount;
+          groups[key].total += t.amount;
+          groups[key].entrees += t.amount;
+        } else if (!filtered.some(f => f.type === 'TOTAL_VENTE_A_CREDIT' && isSameDay(f.date, t.date))) {
+          groups[key].credit += t.amount;
+          groups[key].total += t.amount;
+          groups[key].entrees += t.amount;
+        }
+      }
+      if (t.type === 'TOTAL_TPE') {
+        groups[key].tpe += t.amount;
         groups[key].total += t.amount;
       }
       if (t.type === 'REMISE' || t.type === 'TOTALE_REMISE') groups[key].remises += t.amount;
-      if (t.type === 'COMMANDE') groups[key].commandes += t.amount;
+      if (t.type === 'COMMANDE') {
+        groups[key].commandes += t.amount;
+        groups[key].sorties += t.amount;
+      }
+      if (t.type === 'CONSOMMATION_DCSSA') {
+        groups[key].dcssa += t.amount;
+        groups[key].sorties += t.amount;
+      }
+      if (t.type === 'CONSOMMATION_KOUNDJOURE') {
+        groups[key].koundjoure += t.amount;
+        groups[key].sorties += t.amount;
+      }
     });
 
     return Object.values(groups).sort((a, b) => a.date.getTime() - b.date.getTime());
-  }, [transactions, selectedPeriod]);
+  }, [filteredTransactions, selectedPeriod, selectedDate, dateRange]);
+
+  const previsionsChartData = useMemo(() => {
+    // Basic linear projection for the next 4 periods based on the current selected period's data
+    const data = [...recettesChartData];
+    if (data.length < 2) return data;
+
+    // Calculate average growth over the period
+    let totalGrowth = 0;
+    let validPeriods = 0;
+    for (let i = 1; i < data.length; i++) {
+      if (data[i-1].total > 0) {
+        totalGrowth += (data[i].total - data[i-1].total) / data[i-1].total;
+        validPeriods++;
+      }
+    }
+    
+    const avgGrowthRate = validPeriods > 0 ? totalGrowth / validPeriods : 0;
+    const lastValue = data[data.length - 1].total;
+    const lastDate = data[data.length - 1].date;
+
+    // Generate next 4 periods
+    for (let i = 1; i <= 4; i++) {
+      let nextDate = new Date(lastDate);
+      let nextName = '';
+      
+      if (selectedPeriod === 'JOUR') {
+        nextDate = addHours(nextDate, i);
+        nextName = format(nextDate, 'HH:mm');
+      } else if (['SEMAINE', 'QUINZAINE', 'MOIS'].includes(selectedPeriod)) {
+        nextDate = addDays(nextDate, i);
+        nextName = format(nextDate, 'dd/MM');
+      } else {
+        nextDate = addMonths(nextDate, i);
+        nextName = format(nextDate, 'MMM', { locale: fr });
+      }
+
+      const projectedValue = lastValue * Math.pow(1 + avgGrowthRate, i);
+      
+      data.push({
+        date: nextDate,
+        name: `${nextName} (Prév)`,
+        comptants: 0,
+        tiers: 0,
+        credit: 0,
+        tpe: 0,
+        remises: 0,
+        commandes: 0,
+        total: Math.max(0, projectedValue) // Prevent negative projections
+      });
+    }
+
+    return data;
+  }, [recettesChartData, selectedPeriod]);
 
   // Fournisseurs Chart Data
   const fournisseursChartData = useMemo(() => {
@@ -697,73 +932,75 @@ export default function App() {
   }, [recettesChartData]);
 
   const dcssaChartData = useMemo(() => {
-    const now = new Date();
-    let intervalStart = startOfYear(now);
-    const filtered = transactions.filter(t => t.date >= intervalStart && (t.type === 'CONSOMMATION_DCSSA' || t.type === 'CONSOMMATION_KOUNDJOURE'));
-    const groups: Record<string, any> = {};
-
-    filtered.forEach(t => {
-      const key = startOfMonth(t.date).toISOString();
-      if (!groups[key]) {
-        groups[key] = {
-          date: startOfMonth(t.date),
-          name: format(startOfMonth(t.date), 'MMM', { locale: fr }),
-          DCSSA: 0,
-          KOUNDJOURE: 0
-        };
-      }
-      if (t.type === 'CONSOMMATION_DCSSA') groups[key].DCSSA += t.amount;
-      if (t.type === 'CONSOMMATION_KOUNDJOURE') groups[key].KOUNDJOURE += t.amount;
-    });
-
-    return Object.values(groups).sort((a, b) => a.date.getTime() - b.date.getTime());
-  }, [transactions]);
+    return recettesChartData.map(d => ({
+      name: d.name,
+      DCSSA: d.dcssa,
+      KOUNDJOURE: d.koundjoure
+    }));
+  }, [recettesChartData]);
 
   // Fournisseurs Pivot Table Data
   const fournisseursPivotData = useMemo(() => {
     const suppliers = entities.filter(e => e.type === 'FOURNISSEUR');
-    const now = new Date();
-    const months = Array.from({ length: 6 }, (_, i) => subDays(now, (5 - i) * 30));
+    
+    // Use the same periods as the chart
+    const periods = recettesChartData.map((d, index) => {
+      const start = d.date;
+      const end = index < recettesChartData.length - 1 
+        ? new Date(recettesChartData[index + 1].date.getTime() - 1) 
+        : new Date(start.getTime() + (recettesChartData.length > 1 ? start.getTime() - recettesChartData[index - 1].date.getTime() : 86400000));
+      
+      return {
+        key: d.name,
+        start,
+        end
+      };
+    });
 
     return suppliers.map(s => {
       const row: any = { name: s.name, id: s.id };
       let total = 0;
-      months.forEach(m => {
-        const key = format(m, 'MMM', { locale: fr });
-        const amount = transactions
-          .filter(t => t.entityId === s.id && t.type === 'COMMANDE' && isSameMonth(t.date, m))
+      periods.forEach(p => {
+        const amount = filteredTransactions
+          .filter(t => t.entityId === s.id && t.type === 'COMMANDE' && t.date >= p.start && t.date < p.end)
           .reduce((sum, t) => sum + t.amount, 0);
-        row[key] = amount;
+        row[p.key] = amount;
         total += amount;
       });
       row.total = total;
       return row;
     });
-  }, [entities, transactions]);
+  }, [entities, filteredTransactions, recettesChartData]);
 
   const supplierSpecificChartData = useMemo(() => {
     const supplier = entities.find(e => e.name === subTab);
     if (!supplier) return [];
 
-    const now = new Date();
-    const intervalStart = startOfYear(now);
-    const filtered = transactions.filter(t => t.entityId === supplier.id && t.type === 'COMMANDE' && t.date >= intervalStart);
-    
-    const groups: Record<string, any> = {};
-    filtered.forEach(t => {
-      const key = startOfMonth(t.date).toISOString();
-      if (!groups[key]) {
-        groups[key] = {
-          date: startOfMonth(t.date),
-          name: format(startOfMonth(t.date), 'MMM', { locale: fr }),
-          commandes: 0
-        };
-      }
-      groups[key].commandes += t.amount;
+    const periods = recettesChartData.map((d, index) => {
+      const start = d.date;
+      const end = index < recettesChartData.length - 1 
+        ? new Date(recettesChartData[index + 1].date.getTime() - 1) 
+        : new Date(start.getTime() + (recettesChartData.length > 1 ? start.getTime() - recettesChartData[index - 1].date.getTime() : 86400000));
+      
+      return {
+        key: d.name,
+        start,
+        end
+      };
     });
 
-    return Object.values(groups).sort((a, b) => a.date.getTime() - b.date.getTime());
-  }, [transactions, subTab, entities]);
+    return periods.map(p => {
+      const amount = filteredTransactions
+        .filter(t => t.entityId === supplier.id && t.type === 'COMMANDE' && t.date >= p.start && t.date < p.end)
+        .reduce((sum, t) => sum + t.amount, 0);
+      
+      return {
+        date: p.start,
+        name: p.key,
+        commandes: amount
+      };
+    });
+  }, [filteredTransactions, subTab, entities, recettesChartData]);
 
   // Export PDF Logic
   const handleExportPDF = () => {
@@ -1001,11 +1238,11 @@ export default function App() {
       ["Utilisateur", "Admin Pharma Pro"],
       [],
       ["RÉSUMÉ DES INDICATEURS CLÉS (KPI)"],
-      ["Recettes Totales", kpis.totalRecettes],
-      ["Commandes Fournisseurs", kpis.totalCommandes],
-      ["Crédits Patients", kpis.totalCredit],
-      ["Rejets Assurances", kpis.totalRejets],
-      ["Consommation Implants", kpis.totalImplants],
+      ["Recettes Totales", metrics.recettesEncaisses],
+      ["Commandes Fournisseurs", metrics.totalCommandes],
+      ["Crédits Patients", metrics.totalVenteACredit],
+      ["Rejets Assurances", metrics.rejetsAssurance],
+      ["Consommation Implants", metrics.consommationImplant],
       [],
       ["RÉPARTITION DES RECETTES"],
       ["Total Espèce", recettesData.totalEspece],
@@ -1434,11 +1671,12 @@ export default function App() {
 
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           <NavItem active={activeTab === 'accueil'} onClick={() => { setActiveTab('accueil'); setSubTab(''); setIsSidebarOpen(false); }} icon={<LayoutDashboard size={18}/>} label="Vue d'ensemble" />
-          <NavItem active={activeTab === 'recettes'} onClick={() => { setActiveTab('recettes'); setSubTab(''); setIsSidebarOpen(false); }} icon={<TrendingUp size={18}/>} label="Recettes" />
+          <NavItem active={activeTab === 'recettes'} onClick={() => { setActiveTab('recettes'); setSubTab(''); setIsSidebarOpen(false); }} icon={<TrendingUp size={18}/>} label="Caisse" />
           <NavItem active={activeTab === 'fournisseurs'} onClick={() => { setActiveTab('fournisseurs'); setSubTab('COMMANDES'); setIsSidebarOpen(false); }} icon={<Package size={18}/>} label="Fournisseurs" />
           <NavItem active={activeTab === 'dcssa'} onClick={() => { setActiveTab('dcssa'); setSubTab('DCSSA'); setIsSidebarOpen(false); }} icon={<FileText size={18}/>} label="DCSSA" />
           <NavItem active={activeTab === 'implants'} onClick={() => { setActiveTab('implants'); setSubTab(''); setIsSidebarOpen(false); }} icon={<Database size={18}/>} label="Implants" />
           <NavItem active={activeTab === 'assurances'} onClick={() => { setActiveTab('assurances'); setSubTab('LISTE'); setIsSidebarOpen(false); }} icon={<ShieldCheck size={18}/>} label="Assurances" />
+          <NavItem active={activeTab === 'previsions'} onClick={() => { setActiveTab('previsions'); setSubTab(''); setIsSidebarOpen(false); }} icon={<LineChartIcon size={18}/>} label="Prévisions" />
           {userRole !== 'directrice' && (
             <>
               <div className="h-px bg-white/5 my-4 mx-2" />
@@ -1501,7 +1739,9 @@ export default function App() {
               </button>
               <h2 className="text-xl font-bold text-slate-900 dark:text-white capitalize">
                 {activeTab === 'accueil' ? "Tableau de Bord" : 
+                 activeTab === 'recettes' ? "Caisse" :
                  activeTab === 'dcssa' ? "DCSSA" :
+                 activeTab === 'previsions' ? "Prévisions" :
                  activeTab === 'saisie' ? "Mise à jour" :
                  activeTab === 'parametres' ? "Paramètres" :
                  activeTab}
@@ -1526,19 +1766,38 @@ export default function App() {
               {darkMode ? <Sun size={20} /> : <Moon size={20} />}
             </button>
             <div className="flex bg-slate-100 dark:bg-white/5 rounded-xl p-1 overflow-x-auto border border-slate-200 dark:border-white/5 shrink-0">
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-transparent text-slate-600 dark:text-slate-200 border-none focus:outline-none"
-              />
+              <div className="flex items-center px-2">
+                <input
+                  type="date"
+                  value={dateRange?.start || selectedDate}
+                  onChange={(e) => {
+                    setDateRange({ start: e.target.value, end: dateRange?.end || selectedDate });
+                    setSelectedPeriod('CUSTOM' as any);
+                  }}
+                  className="px-1 py-1.5 rounded-lg text-[10px] font-bold bg-transparent text-slate-600 dark:text-slate-200 border-none focus:outline-none"
+                />
+                <span className="text-slate-400 text-[10px] px-1">à</span>
+                <input
+                  type="date"
+                  value={dateRange?.end || selectedDate}
+                  onChange={(e) => {
+                    setDateRange({ start: dateRange?.start || selectedDate, end: e.target.value });
+                    setSelectedPeriod('CUSTOM' as any);
+                    setSelectedDate(e.target.value);
+                  }}
+                  className="px-1 py-1.5 rounded-lg text-[10px] font-bold bg-transparent text-slate-600 dark:text-slate-200 border-none focus:outline-none"
+                />
+              </div>
               {(['JOUR', 'SEMAINE', 'QUINZAINE', 'MOIS', 'TRIMESTRE', 'SEMESTRE', 'ANNEE'] as Period[]).map((p) => (
                 <button
                   key={p}
-                  onClick={() => setSelectedPeriod(p)}
+                  onClick={() => {
+                    setSelectedPeriod(p);
+                    setDateRange(null);
+                  }}
                   className={cn(
                     "px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all whitespace-nowrap",
-                    selectedPeriod === p ? "bg-emerald-600 text-white shadow-lg" : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                    selectedPeriod === p && !dateRange ? "bg-emerald-600 text-white shadow-lg" : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
                   )}
                 >
                   {p}
@@ -1853,12 +2112,67 @@ export default function App() {
           {/* TAB: ACCUEIL */}
           {activeTab === 'accueil' && (
             <div className="space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-                <KPICard label="Recettes Totales" value={formatCurrency(kpis.totalRecettes)} trend={12} icon={<DollarSign className="text-emerald-500" />} color="emerald" />
-                <KPICard label="Commandes Fournisseurs" value={formatCurrency(kpis.totalCommandes)} trend={-5} icon={<Package className="text-blue-500" />} color="blue" />
-                <KPICard label="Crédits Patients" value={formatCurrency(kpis.totalCredit)} trend={8} icon={<Users className="text-amber-500" />} color="amber" />
-                <KPICard label="Rejets Assurances" value={formatCurrency(kpis.totalRejets)} trend={-15} icon={<XCircle className="text-red-500" />} color="red" />
-                <KPICard label="Consommation Implants" value={formatCurrency(kpis.totalImplants)} trend={22} icon={<Database className="text-purple-500" />} color="purple" />
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <KPICard 
+                  label="Chiffre d'affaire" 
+                  value={formatCurrency(metrics.chiffreAffaires)} 
+                  trend={calculateGrowth(metrics.chiffreAffaires, prevMetrics.chiffreAffaires)} 
+                  icon={<TrendingUp className="text-emerald-500" />} 
+                  color="emerald" 
+                  subMetrics={[
+                    { label: 'Ventes Comptant', value: formatCurrency(metrics.totalVenteComptant) },
+                    { label: 'Ventes Tiers Payant', value: formatCurrency(metrics.totalVenteTiersPayant) }
+                  ]}
+                />
+                <KPICard 
+                  label="Recettes Totales" 
+                  value={formatCurrency(metrics.recettesEncaisses)} 
+                  trend={calculateGrowth(metrics.recettesEncaisses, prevMetrics.recettesEncaisses)} 
+                  icon={<DollarSign className="text-emerald-500" />} 
+                  color="emerald" 
+                />
+                <KPICard 
+                  label="Commandes Fournisseurs" 
+                  value={formatCurrency(metrics.totalCommandes)} 
+                  trend={calculateGrowth(metrics.totalCommandes, prevMetrics.totalCommandes)} 
+                  icon={<Package className="text-blue-500" />} 
+                  color="blue" 
+                />
+                <KPICard 
+                  label="Part Assurance à Réglée" 
+                  value={formatCurrency(metrics.partAssuranceAReglee)} 
+                  trend={calculateGrowth(metrics.partAssuranceAReglee, prevMetrics.partAssuranceAReglee)} 
+                  icon={<ShieldCheck className="text-amber-500" />} 
+                  color="amber" 
+                />
+                <KPICard 
+                  label="Consommation DCSSA" 
+                  value={formatCurrency(metrics.consommationDCSSA)} 
+                  trend={calculateGrowth(metrics.consommationDCSSA, prevMetrics.consommationDCSSA)} 
+                  icon={<FileText className="text-purple-500" />} 
+                  color="purple" 
+                />
+                <KPICard 
+                  label="Consommation Implant" 
+                  value={formatCurrency(metrics.consommationImplant)} 
+                  trend={calculateGrowth(metrics.consommationImplant, prevMetrics.consommationImplant)} 
+                  icon={<Database className="text-purple-500" />} 
+                  color="purple" 
+                />
+                <KPICard 
+                  label="Ventes à Crédit" 
+                  value={formatCurrency(metrics.totalVenteACredit)} 
+                  trend={calculateGrowth(metrics.totalVenteACredit, prevMetrics.totalVenteACredit)} 
+                  icon={<Users className="text-amber-500" />} 
+                  color="amber" 
+                />
+                <KPICard 
+                  label="Rejets Assurance" 
+                  value={formatCurrency(metrics.rejetsAssurance)} 
+                  trend={calculateGrowth(metrics.rejetsAssurance, prevMetrics.rejetsAssurance)} 
+                  icon={<XCircle className="text-red-500" />} 
+                  color="red" 
+                />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -1879,7 +2193,8 @@ export default function App() {
                           }}
                           itemStyle={{ fontSize: '12px', color: darkMode ? '#f1f5f9' : '#0f172a' }}
                         />
-                        <Line type="monotone" dataKey="total" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Recettes" />
+                        <Line type="monotone" dataKey="entrees" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Entrées" />
+                        <Line type="monotone" dataKey="sorties" stroke="#ef4444" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Sorties" />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
@@ -1896,6 +2211,7 @@ export default function App() {
                             { name: 'Part Assurée Tiers Payant', value: recettesData.partAssureeTiersPayant },
                             { name: 'Part Assurance à Réglée', value: recettesData.partAssuranceAReglee },
                             { name: 'Total Vente à Crédit', value: recettesData.totalVenteACredit },
+                            { name: 'Total TPE', value: recettesData.totalTPE },
                             { name: 'Totale Remise', value: recettesData.totaleRemise },
                           ]}
                           cx="50%"
@@ -1904,11 +2220,23 @@ export default function App() {
                           outerRadius={100}
                           paddingAngle={5}
                           dataKey="value"
+                          labelLine={false}
+                          label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                            const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+                            const x = cx + radius * Math.cos(-midAngle * Math.PI / 180);
+                            const y = cy + radius * Math.sin(-midAngle * Math.PI / 180);
+                            return percent > 0.05 ? (
+                              <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={12} fontWeight="bold">
+                                {`${(percent * 100).toFixed(0)}%`}
+                              </text>
+                            ) : null;
+                          }}
                         >
                           <Cell fill="#10b981" />
                           <Cell fill="#3b82f6" />
                           <Cell fill="#8b5cf6" />
                           <Cell fill="#f59e0b" />
+                          <Cell fill="#14b8a6" />
                           <Cell fill="#ef4444" />
                         </Pie>
                         <Tooltip 
@@ -1917,6 +2245,11 @@ export default function App() {
                             border: `1px solid ${darkMode ? '#1e293b' : '#e2e8f0'}`, 
                             borderRadius: '12px',
                             color: darkMode ? '#f1f5f9' : '#0f172a'
+                          }}
+                          formatter={(value: number, name: string, props: any) => {
+                            const total = recettesData.totalGlobal;
+                            const percent = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                            return [`${formatCurrency(value)} (${percent}%)`, name];
                           }}
                         />
                         <Legend verticalAlign="bottom" height={36}/>
@@ -1978,6 +2311,7 @@ export default function App() {
                 <StatCard label="Total Vente Tiers Payant" value={formatCurrency(recettesData.totalVenteTiersPayant)} subValue="Total avec assurance" color="blue" />
                 <StatCard label="Part Assurance à Réglée" value={formatCurrency(recettesData.partAssuranceAReglee)} subValue="Part mutuelle" color="amber" />
                 <StatCard label="Total Vente à Crédit" value={formatCurrency(recettesData.totalVenteACredit)} subValue="Crédits patients" color="amber" />
+                <StatCard label="Total TPE" value={formatCurrency(recettesData.totalTPE)} subValue="Paiements par carte" color="emerald" />
                 <StatCard label="Totale Remise" value={formatCurrency(recettesData.totaleRemise)} subValue="Remises accordées" color="red" />
                 <StatCard label="Totale Toutes Ventes Confondu" value={formatCurrency(recettesData.totalGlobal)} subValue="Chiffre d'affaires" color="emerald" />
               </div>
@@ -2004,7 +2338,7 @@ export default function App() {
                         itemStyle={{ color: darkMode ? '#f8fafc' : '#0f172a' }}
                       />
                       <Legend />
-                      <Line type="monotone" dataKey="comptants" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} name="Total Comptant (Espèce + Part Patient)" />
+                      <Line type="monotone" dataKey="comptants" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} name="Total Comptant (Espèce - Part Patient)" />
                       <Line type="monotone" dataKey="tiers" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} name="Part Assurance" />
                       <Line type="monotone" dataKey="credit" stroke="#f59e0b" strokeWidth={3} dot={{ r: 4 }} name="Total Vente à Crédit" />
                       <Line type="monotone" dataKey="remises" stroke="#ef4444" strokeWidth={3} dot={{ r: 4 }} name="Totale Remise" />
@@ -2066,19 +2400,35 @@ export default function App() {
           {/* TAB: FOURNISSEURS */}
           {activeTab === 'fournisseurs' && (
             <div className="space-y-8">
-              <div className="flex gap-4 border-b border-slate-200 dark:border-white/5 overflow-x-auto no-scrollbar">
-                {['GLOBAL', 'COMMANDES', 'FACTURES', ...entities.filter(e => e.type === 'FOURNISSEUR').map(e => e.name)].map(tab => (
-                  <button
-                    key={tab}
-                    onClick={() => setSubTab(tab)}
-                    className={cn(
-                      "px-6 py-3 text-sm font-bold transition-all border-b-2",
-                      subTab === tab ? "border-emerald-500 text-emerald-500" : "border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-300"
-                    )}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-white/5 pb-4">
+                <div className="flex gap-4 overflow-x-auto no-scrollbar">
+                  {['GLOBAL', 'COMMANDES', 'FACTURES'].map(tab => (
+                    <button
+                      key={tab}
+                      onClick={() => setSubTab(tab)}
+                      className={cn(
+                        "px-6 py-3 text-sm font-bold transition-all border-b-2",
+                        subTab === tab ? "border-emerald-500 text-emerald-500" : "border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-300"
+                      )}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+                
+                <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
+                  <Package size={16} className="text-slate-400" />
+                  <select
+                    value={['GLOBAL', 'COMMANDES', 'FACTURES'].includes(subTab) ? '' : subTab}
+                    onChange={(e) => setSubTab(e.target.value || 'GLOBAL')}
+                    className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
                   >
-                    {tab}
-                  </button>
-                ))}
+                    <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
+                    {entities.filter(e => e.type === 'FOURNISSEUR').map(s => (
+                      <option key={s.id} value={s.name} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {subTab === 'GLOBAL' && (
@@ -2141,49 +2491,88 @@ export default function App() {
 
               {subTab === 'COMMANDES' && (
                 <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white p-6 border-b border-slate-200 dark:border-white/5">Toutes les Commandes</h3>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('entityId')}>Fournisseur {getSortIcon('entityId')}</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('description')}>Description {getSortIcon('description')}</th>
-                          {userRole !== 'directrice' && (
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white p-6 border-b border-slate-200 dark:border-white/5">Toutes les Commandes par Fournisseur</h3>
+                  <div className="divide-y divide-slate-200 dark:divide-white/5">
+                    {entities.filter(e => e.type === 'FOURNISSEUR').map(supplier => {
+                      const supplierTransactions = filteredTransactions.filter(t => t.entityId === supplier.id && t.type === 'COMMANDE').sort((a, b) => b.date.getTime() - a.date.getTime());
+                      if (supplierTransactions.length === 0) return null;
+                      
+                      const totalAmount = supplierTransactions.reduce((sum, t) => sum + t.amount, 0);
+                      const isExpanded = expandedSupplierId === supplier.id;
+
+                      return (
+                        <div key={supplier.id} className="flex flex-col">
+                          <button
+                            onClick={() => setExpandedSupplierId(isExpanded ? null : supplier.id)}
+                            className="flex items-center justify-between p-6 hover:bg-slate-50 dark:hover:bg-white/2 transition-colors text-left"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className={`p-2 rounded-lg transition-colors ${isExpanded ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400' : 'bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400'}`}>
+                                {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                              </div>
+                              <div>
+                                <h4 className="text-base font-bold text-slate-900 dark:text-white">{supplier.name}</h4>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">{supplierTransactions.length} commande(s)</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-lg font-mono font-bold text-emerald-500">{formatCurrency(totalAmount)}</p>
+                            </div>
+                          </button>
+                          
+                          {isExpanded && (
+                            <div className="bg-slate-50 dark:bg-white/2 p-6 border-t border-slate-200 dark:border-white/5">
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                  <thead>
+                                    <tr className="border-b border-slate-200 dark:border-white/5">
+                                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
+                                      {userRole !== 'directrice' && (
+                                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                                      )}
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-200 dark:divide-white/5">
+                                    {supplierTransactions.map((t) => (
+                                      <tr key={t.id} className="hover:bg-white dark:hover:bg-white/5 transition-colors">
+                                        <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                                        <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
+                                        <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.description}</td>
+                                        {userRole !== 'directrice' && (
+                                          <td className="px-6 py-4 text-right">
+                                            <div className="flex items-center justify-end gap-2">
+                                              <button 
+                                                onClick={() => setEditingTransaction(t)}
+                                                className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
+                                              >
+                                                <Edit2 size={16} />
+                                              </button>
+                                              <button 
+                                                onClick={() => handleDeleteTransaction(t.id)}
+                                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                              >
+                                                <Trash2 size={16} />
+                                              </button>
+                                            </div>
+                                          </td>
+                                        )}
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
                           )}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                        {sortData(transactions.filter(t => t.type === 'COMMANDE').sort((a, b) => b.date.getTime() - a.date.getTime())).slice(0, 50).map((t) => (
-                          <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
-                            <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
-                            <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
-                            <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
-                            <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.description}</td>
-                            {userRole !== 'directrice' && (
-                              <td className="px-6 py-4 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  <button 
-                                    onClick={() => setEditingTransaction(t)}
-                                    className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
-                                  >
-                                    <Edit2 size={16} />
-                                  </button>
-                                  <button 
-                                    onClick={() => handleDeleteTransaction(t.id)}
-                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
-                                  >
-                                    <Trash2 size={16} />
-                                  </button>
-                                </div>
-                              </td>
-                            )}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </div>
+                      );
+                    })}
+                    {entities.filter(e => e.type === 'FOURNISSEUR').every(supplier => filteredTransactions.filter(t => t.entityId === supplier.id && t.type === 'COMMANDE').length === 0) && (
+                      <div className="p-8 text-center text-slate-500 dark:text-slate-400">
+                        Aucune commande trouvée pour la période sélectionnée.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -2236,6 +2625,61 @@ export default function App() {
                               <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
                               <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
                               <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.description}</td>
+                              {userRole !== 'directrice' && (
+                                <td className="px-6 py-4 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button 
+                                      onClick={() => setEditingTransaction(t)}
+                                      className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
+                                    >
+                                      <Edit2 size={16} />
+                                    </button>
+                                    <button 
+                                      onClick={() => handleDeleteTransaction(t.id)}
+                                      className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white p-6 border-b border-slate-200 dark:border-white/5">Détail des Factures: {subTab}</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('status')}>Statut {getSortIcon('status')}</th>
+                            {userRole !== 'directrice' && (
+                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 dark:divide-white/5">
+                          {sortData(transactions
+                            .filter(t => t.type === 'FACTURE' && entities.find(e => e.id === t.entityId)?.name === subTab)
+                            .sort((a, b) => b.date.getTime() - a.date.getTime()))
+                            .map((t) => (
+                            <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                              <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
+                              <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                              <td className="px-6 py-4">
+                                <span className={cn(
+                                  "px-2 py-1 rounded-md text-[9px] font-bold uppercase",
+                                  t.status === 'PAYÉE' ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"
+                                )}>
+                                  {t.status}
+                                </span>
+                              </td>
                               {userRole !== 'directrice' && (
                                 <td className="px-6 py-4 text-right">
                                   <div className="flex items-center justify-end gap-2">
@@ -2371,7 +2815,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                    {sortData(transactions
+                    {sortData(filteredTransactions
                       .filter(t => t.type === (subTab === 'DCSSA' ? 'CONSOMMATION_DCSSA' : 'CONSOMMATION_KOUNDJOURE')))
                       .slice(0, 10)
                       .map((t) => (
@@ -2485,38 +2929,80 @@ export default function App() {
               </div>
 
               {subTab === 'LISTE' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {entities.filter(e => e.type === 'ASSURANCE').map(a => {
-                    const amount = transactions.filter(t => t.entityId === a.id && t.type === 'CONSOMMATION_ASSURANCE').reduce((s, t) => s + t.amount, 0);
-                    const rejets = transactions.filter(t => t.entityId === a.id && t.type === 'REJET_ASSURANCE').reduce((s, t) => s + t.amount, 0);
-                    return (
-                      <div key={a.id} className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 hover:border-emerald-500/30 transition-all group shadow-sm dark:shadow-none">
-                        <div className="flex justify-between items-start mb-4">
-                          <div>
-                            <h4 className="text-lg font-bold text-slate-900 dark:text-white">{a.name}</h4>
-                            <p className="text-[10px] text-slate-500 uppercase tracking-widest">{a.code}</p>
+                <div className="space-y-8">
+                  <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
+                      <TrendingUp className="text-emerald-500" size={20} />
+                      Top Assurances par Volume de Consommation
+                    </h3>
+                    <div className="space-y-4">
+                      {entities
+                        .filter(e => e.type === 'ASSURANCE')
+                        .map(a => {
+                          const amount = filteredTransactions.filter(t => t.entityId === a.id && t.type === 'CONSOMMATION_ASSURANCE').reduce((s, t) => s + t.amount, 0);
+                          return { ...a, amount };
+                        })
+                        .sort((a, b) => b.amount - a.amount)
+                        .slice(0, 5)
+                        .map((a, index) => (
+                          <div key={a.id} className="flex items-center justify-between p-4 bg-slate-50 dark:bg-white/2 rounded-xl border border-slate-200 dark:border-white/5">
+                            <div className="flex items-center gap-4">
+                              <div className={cn(
+                                "w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm",
+                                index === 0 ? "bg-amber-500 text-white" :
+                                index === 1 ? "bg-slate-300 text-slate-800" :
+                                index === 2 ? "bg-amber-700 text-white" :
+                                "bg-slate-200 dark:bg-white/10 text-slate-500 dark:text-slate-400"
+                              )}>
+                                {index + 1}
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-slate-900 dark:text-white">{a.name}</h4>
+                                <p className="text-[10px] text-slate-500 uppercase tracking-widest">{a.code}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-mono font-bold text-emerald-500">{formatCurrency(a.amount)}</div>
+                              <div className="text-[10px] text-slate-500">Volume consommé</div>
+                            </div>
                           </div>
-                          <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white transition-all">
-                            <ShieldCheck size={20} />
+                        ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {entities.filter(e => e.type === 'ASSURANCE').map(a => {
+                      const amount = filteredTransactions.filter(t => t.entityId === a.id && t.type === 'CONSOMMATION_ASSURANCE').reduce((s, t) => s + t.amount, 0);
+                      const rejets = filteredTransactions.filter(t => t.entityId === a.id && t.type === 'REJET_ASSURANCE').reduce((s, t) => s + t.amount, 0);
+                      return (
+                        <div key={a.id} className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 hover:border-emerald-500/30 transition-all group shadow-sm dark:shadow-none">
+                          <div className="flex justify-between items-start mb-4">
+                            <div>
+                              <h4 className="text-lg font-bold text-slate-900 dark:text-white">{a.name}</h4>
+                              <p className="text-[10px] text-slate-500 uppercase tracking-widest">{a.code}</p>
+                            </div>
+                            <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white transition-all">
+                              <ShieldCheck size={20} />
+                            </div>
+                          </div>
+                          <div className="space-y-3">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-slate-500">Consommation</span>
+                              <span className="text-slate-900 dark:text-white font-bold font-mono">{formatCurrency(amount)}</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-slate-500">Rejets</span>
+                              <span className="text-red-400 font-bold font-mono">{formatCurrency(rejets)}</span>
+                            </div>
+                            <div className="pt-3 border-t border-slate-200 dark:border-white/5 flex justify-between text-sm">
+                              <span className="text-slate-400 font-bold">Solde Net</span>
+                              <span className="text-emerald-500 font-bold font-mono">{formatCurrency(amount - rejets)}</span>
+                            </div>
                           </div>
                         </div>
-                        <div className="space-y-3">
-                          <div className="flex justify-between text-sm">
-                            <span className="text-slate-500">Consommation</span>
-                            <span className="text-white font-bold font-mono">{formatCurrency(amount)}</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-slate-500">Rejets</span>
-                            <span className="text-red-400 font-bold font-mono">{formatCurrency(rejets)}</span>
-                          </div>
-                          <div className="pt-3 border-t border-white/5 flex justify-between text-sm">
-                            <span className="text-slate-400 font-bold">Solde Net</span>
-                            <span className="text-emerald-500 font-bold font-mono">{formatCurrency(amount - rejets)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
@@ -2535,7 +3021,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                      {sortData(transactions.filter(t => t.type === 'REJET_ASSURANCE')).slice(0, 15).map((t) => (
+                      {sortData(filteredTransactions.filter(t => t.type === 'REJET_ASSURANCE')).slice(0, 15).map((t) => (
                         <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                           <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
                           <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.reason}</td>
@@ -2584,7 +3070,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                        {sortData(transactions.filter(t => t.entityId === entities.find(e => e.name === subTab)?.id && t.type === 'CONSOMMATION_ASSURANCE')).slice(0, 15).map((t) => (
+                        {sortData(filteredTransactions.filter(t => t.entityId === entities.find(e => e.name === subTab)?.id && t.type === 'CONSOMMATION_ASSURANCE')).slice(0, 15).map((t) => (
                           <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                             <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
                             <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
@@ -2627,6 +3113,7 @@ export default function App() {
                 <StatCard label="Total Vente Tiers Payant" value={formatCurrency(recettesData.totalVenteTiersPayant)} subValue="Total avec assurance" color="blue" />
                 <StatCard label="Part Assurance à Réglée" value={formatCurrency(recettesData.partAssuranceAReglee)} subValue="Part mutuelle" color="amber" />
                 <StatCard label="Total Vente à Crédit" value={formatCurrency(recettesData.totalVenteACredit)} subValue="Crédits patients" color="amber" />
+                <StatCard label="Total TPE" value={formatCurrency(recettesData.totalTPE)} subValue="Paiements par carte" color="emerald" />
                 <StatCard label="Totale Remise" value={formatCurrency(recettesData.totaleRemise)} subValue="Remises accordées" color="red" />
                 <StatCard label="Totale Toutes Ventes Confondu" value={formatCurrency(recettesData.totalGlobal)} subValue="Chiffre d'affaires" color="emerald" />
               </div>
@@ -2669,7 +3156,18 @@ export default function App() {
                     <form className="space-y-4" onSubmit={async (e) => {
                       e.preventDefault();
                       const formData = new FormData(e.currentTarget);
-                      const date = new Date(formData.get('date') as string);
+                      const dateStr = formData.get('date') as string;
+                      let date = dateStr ? new Date(dateStr) : new Date();
+                      
+                      // If the selected date is today, use the current time to allow evolution on charts
+                      const today = new Date();
+                      if (isSameDay(date, today)) {
+                        date = today;
+                      } else {
+                        // For past dates, set to noon to avoid timezone issues but allow grouping
+                        date.setHours(12, 0, 0, 0);
+                      }
+
                       const desc = formData.get('desc') as string;
 
                       try {
@@ -2681,6 +3179,7 @@ export default function App() {
                             'TOTAL_VENTE_TIERS_PAYANT',
                             'PART_ASSURANCE_A_REGLEE',
                             'TOTAL_VENTE_A_CREDIT',
+                            'TOTAL_TPE',
                             'TOTALE_REMISE',
                             'TOTALE_TOUTES_VENTES_CONFONDU'
                           ];
@@ -2807,6 +3306,10 @@ export default function App() {
                                 <input name="TOTAL_VENTE_A_CREDIT" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none transition-colors" placeholder="0" />
                               </div>
                               <div>
+                                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Total TPE</label>
+                                <input name="TOTAL_TPE" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors" placeholder="0" />
+                              </div>
+                              <div>
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Totale Remise</label>
                                 <input name="TOTALE_REMISE" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-red-500 outline-none transition-colors" placeholder="0" />
                               </div>
@@ -2853,13 +3356,30 @@ export default function App() {
                         <>
                           <div>
                             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Type de Consommation</label>
-                            <select name="type" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
+                            <select 
+                              name="type" 
+                              required 
+                              value={saisieConsommationType}
+                              onChange={(e) => setSaisieConsommationType(e.target.value)}
+                              className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300"
+                            >
                               <option value="CONSOMMATION_DCSSA">DCSSA</option>
                               <option value="CONSOMMATION_KOUNDJOURE">Koundjouré</option>
                               <option value="CONSOMMATION_IMPLANT">Implants</option>
                               <option value="CONSOMMATION_ASSURANCE">Assurance</option>
                             </select>
                           </div>
+                          {saisieConsommationType === 'CONSOMMATION_ASSURANCE' && (
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Assurance</label>
+                              <select name="entityId" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
+                                <option value="">Sélectionner...</option>
+                                {entities.filter(e => e.type === 'ASSURANCE').map(e => (
+                                  <option key={e.id} value={e.id}>{e.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                         </>
                       )}
 
@@ -3073,6 +3593,40 @@ export default function App() {
           )}
 
           {/* TAB: PARAMETRES */}
+          {activeTab === 'previsions' && (
+            <div className="space-y-8">
+              <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
+                  <LineChartIcon className="text-emerald-500" size={20} />
+                  Prévisions des Ventes (Prochaines Semaines)
+                </h3>
+                <div className="h-96">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={previsionsChartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
+                      <XAxis dataKey="name" stroke={darkMode ? "#64748b" : "#94a3b8"} fontSize={12} tickLine={false} axisLine={false} />
+                      <YAxis stroke={darkMode ? "#64748b" : "#94a3b8"} fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `${v/1000000}M`} />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                          border: `1px solid ${darkMode ? '#1e293b' : '#e2e8f0'}`, 
+                          borderRadius: '12px',
+                          color: darkMode ? '#f1f5f9' : '#0f172a'
+                        }}
+                        itemStyle={{ fontSize: '12px', color: darkMode ? '#f1f5f9' : '#0f172a' }}
+                      />
+                      <Line type="monotone" dataKey="total" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Ventes Réelles" />
+                      <Line type="monotone" dataKey="total" stroke="#3b82f6" strokeWidth={3} strokeDasharray="5 5" dot={false} name="Tendance Prévue" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+                <p className="text-sm text-slate-500 mt-4 text-center">
+                  * Les prévisions sont basées sur une projection linéaire simple des données historiques récentes.
+                </p>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'parametres' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
@@ -3339,8 +3893,10 @@ function NavItem({ active, onClick, icon, label }: { active: boolean; onClick: (
   );
 }
 
-function KPICard({ label, value, trend, icon, color }: { label: string; value: string; trend: number; icon: React.ReactNode; color: string }) {
+function KPICard({ label, value, trend, icon, color, subMetrics }: { label: string; value: string; trend: number; icon: React.ReactNode; color: string; subMetrics?: { label: string; value: string }[] }) {
   const isPositive = trend >= 0;
+  const formattedTrend = isFinite(trend) && !isNaN(trend) ? Math.abs(trend).toFixed(1) : '0.0';
+
   return (
     <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 relative overflow-hidden group transition-colors duration-300">
       <div className={cn("absolute top-0 left-0 w-1 h-full", {
@@ -3355,13 +3911,25 @@ function KPICard({ label, value, trend, icon, color }: { label: string; value: s
         <div className="p-2 bg-slate-100 dark:bg-white/5 rounded-lg group-hover:scale-110 transition-transform">{icon}</div>
       </div>
       <h4 className="text-2xl font-bold text-slate-900 dark:text-white mb-2 font-mono">{value}</h4>
+      
+      {subMetrics && subMetrics.length > 0 && (
+        <div className="mb-3 space-y-1">
+          {subMetrics.map((sm, idx) => (
+            <div key={idx} className="flex justify-between items-center text-[10px] text-slate-500 dark:text-slate-400">
+              <span>{sm.label}</span>
+              <span className="font-mono font-bold">{sm.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="flex items-center gap-2">
         <span className={cn(
           "flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded",
           isPositive ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
         )}>
           {isPositive ? <ArrowUpRight size={10} className="mr-1" /> : <ArrowDownRight size={10} className="mr-1" />}
-          {Math.abs(trend)}%
+          {formattedTrend}%
         </span>
         <span className="text-[10px] text-slate-500">vs période préc.</span>
       </div>

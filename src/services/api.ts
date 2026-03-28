@@ -1,6 +1,6 @@
 import { Transaction, Entity, AuditLog, Backup } from '../lib/data';
 import { db, auth } from '../lib/firebase';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, limit, writeBatch, where, setDoc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, limit, writeBatch, where, setDoc, getDoc, getDocFromServer } from 'firebase/firestore';
 
 // Helper to simulate network delay for auth
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -240,6 +240,18 @@ export const api = {
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'audit_logs');
       throw error;
+    }
+  },
+
+  async testConnection() {
+    try {
+      await getDocFromServer(doc(db, 'test', 'connection'));
+      console.log("Firestore connection successful.");
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('the client is offline')) {
+        console.error("Please check your Firebase configuration. The client is offline.");
+      }
+      // Skip logging for other errors, as this is simply a connection test.
     }
   },
 
