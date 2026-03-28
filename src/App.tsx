@@ -105,7 +105,7 @@ import 'jspdf-autotable';
 import { auth } from './lib/firebase';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword } from 'firebase/auth';
 
-type Period = 'JOUR' | 'SEMAINE' | 'QUINZAINE' | 'MOIS' | 'TRIMESTRE' | 'SEMESTRE' | 'ANNEE' | 'CUSTOM';
+type Period = 'JOUR' | 'SEMAINE' | 'QUINZAINE' | 'MOIS' | 'TRIMESTRE' | 'SEMESTRE' | 'ANNEE' | 'TOUT' | 'CUSTOM';
 
 const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
   { value: 'TOTAL_ESPECE', label: 'Total Espèce' },
@@ -517,6 +517,10 @@ export default function App() {
   };
 
   const previousFilteredTransactions = useMemo(() => {
+    if (selectedPeriod === 'TOUT') {
+      return []; // No previous period for 'TOUT'
+    }
+
     if (selectedPeriod === 'CUSTOM' && dateRange) {
       const start = new Date(dateRange.start);
       const end = new Date(dateRange.end);
@@ -587,6 +591,10 @@ export default function App() {
 
   // Global Filtering Logic
   const filteredTransactions = useMemo(() => {
+    if (selectedPeriod === 'TOUT') {
+      return transactions;
+    }
+
     if (selectedPeriod === 'CUSTOM' && dateRange) {
       const start = startOfDay(new Date(dateRange.start));
       const end = endOfDay(new Date(dateRange.end));
@@ -732,46 +740,46 @@ export default function App() {
     let intervalEnd: Date;
     let customLabelFn: ((date: Date) => string) | null = null;
     
-    if (selectedPeriod !== 'CUSTOM') {
+    if (selectedPeriod !== 'CUSTOM' && selectedPeriod !== 'TOUT') {
       switch (selectedPeriod) {
         case 'JOUR':
-          intervalStart = startOfDay(baseDate);
+          intervalStart = subDays(baseDate, 14);
           intervalEnd = endOfDay(baseDate);
           groupingFn = startOfDay;
           labelFormat = 'dd/MM';
           break;
         case 'SEMAINE':
-          intervalStart = startOfWeek(baseDate, { weekStartsOn: 1 });
+          intervalStart = startOfWeek(subDays(baseDate, 7 * 7), { weekStartsOn: 1 });
           intervalEnd = endOfWeek(baseDate, { weekStartsOn: 1 });
           groupingFn = (d) => startOfWeek(d, { weekStartsOn: 1 });
           customLabelFn = (d) => `S${format(d, 'ww')}`;
           break;
         case 'QUINZAINE':
-          intervalStart = startOfMonth(baseDate);
+          intervalStart = startOfMonth(subMonths(baseDate, 3));
           intervalEnd = endOfMonth(baseDate);
           groupingFn = (d) => d.getDate() <= 15 ? startOfMonth(d) : addDays(startOfMonth(d), 15);
           customLabelFn = (d) => d.getDate() <= 15 ? `01-15 ${format(d, 'MMM', { locale: fr })}` : `16-${format(endOfMonth(d), 'dd')} ${format(d, 'MMM', { locale: fr })}`;
           break;
         case 'MOIS':
-          intervalStart = startOfMonth(baseDate);
+          intervalStart = startOfMonth(subMonths(baseDate, 11));
           intervalEnd = endOfMonth(baseDate);
           groupingFn = startOfMonth;
           labelFormat = 'MMM yy';
           break;
         case 'TRIMESTRE':
-          intervalStart = startOfQuarter(baseDate);
+          intervalStart = startOfQuarter(subMonths(baseDate, 9));
           intervalEnd = endOfQuarter(baseDate);
           groupingFn = startOfQuarter;
           customLabelFn = (d) => `T${Math.floor(d.getMonth() / 3) + 1} ${format(d, 'yy')}`;
           break;
         case 'SEMESTRE':
-          intervalStart = baseDate.getMonth() < 6 ? startOfYear(baseDate) : addMonths(startOfYear(baseDate), 6);
+          intervalStart = subMonths(baseDate.getMonth() < 6 ? startOfYear(baseDate) : addMonths(startOfYear(baseDate), 6), 18);
           intervalEnd = baseDate.getMonth() < 6 ? endOfDay(addDays(addMonths(startOfYear(baseDate), 6), -1)) : endOfYear(baseDate);
           groupingFn = (d) => d.getMonth() < 6 ? startOfYear(d) : addMonths(startOfYear(d), 6);
           customLabelFn = (d) => d.getMonth() < 6 ? `Sem 1 ${format(d, 'yy')}` : `Sem 2 ${format(d, 'yy')}`;
           break;
         case 'ANNEE':
-          intervalStart = startOfYear(baseDate);
+          intervalStart = startOfYear(subYears(baseDate, 4));
           intervalEnd = endOfYear(baseDate);
           groupingFn = startOfYear;
           labelFormat = 'yyyy';
@@ -782,6 +790,12 @@ export default function App() {
           groupingFn = startOfMonth;
           labelFormat = 'MMM yy';
       }
+    } else if (selectedPeriod === 'TOUT') {
+      // For 'TOUT', we show the last 12 months by default on the chart to keep it readable
+      intervalStart = startOfMonth(subMonths(new Date(), 11));
+      intervalEnd = endOfMonth(new Date());
+      groupingFn = startOfMonth;
+      labelFormat = 'MMM yy';
     } else {
       intervalStart = startOfDay(new Date(dateRange?.start || selectedDate));
       intervalEnd = endOfDay(new Date(dateRange?.end || selectedDate));
@@ -825,7 +839,9 @@ export default function App() {
       else current = addYears(current, 1);
     }
 
-    filtered.forEach(t => {
+    const chartTransactions = selectedPeriod === 'CUSTOM' ? filteredTransactions : transactions;
+
+    chartTransactions.forEach(t => {
       const key = groupingFn(t.date).toISOString();
       if (!groups[key]) return;
       
@@ -1802,7 +1818,7 @@ export default function App() {
                   className="px-1 py-1.5 rounded-lg text-[10px] font-bold bg-transparent text-slate-600 dark:text-slate-200 border-none focus:outline-none"
                 />
               </div>
-              {(['JOUR', 'SEMAINE', 'QUINZAINE', 'MOIS', 'TRIMESTRE', 'SEMESTRE', 'ANNEE'] as Period[]).map((p) => (
+              {(['TOUT', 'JOUR', 'SEMAINE', 'QUINZAINE', 'MOIS', 'TRIMESTRE', 'SEMESTRE', 'ANNEE'] as Period[]).map((p) => (
                 <button
                   key={p}
                   onClick={() => {
@@ -2309,6 +2325,57 @@ export default function App() {
                       {transactions.filter(t => t.type === 'CONSOMMATION_IMPLANT').length === 0 && (
                         <tr>
                           <td colSpan={3} className="px-6 py-8 text-center text-slate-500 text-sm italic">Aucune transaction d'implant enregistrée</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Section Dernières Saisies sur Accueil */}
+              <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">Dernières Saisies (Toutes catégories)</h3>
+                  <button 
+                    onClick={() => setActiveTab('saisie')}
+                    className="text-xs text-emerald-500 hover:text-emerald-400 font-bold uppercase tracking-wider transition-colors"
+                  >
+                    Voir tout
+                  </button>
+                </div>
+                <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+                  <table className="w-full text-left">
+                    <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-[#0e1629]">
+                      <tr>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Type</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Montant</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                      {transactions
+                        .slice(0, 10)
+                        .map((t) => (
+                        <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                          <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                          <td className="px-6 py-4 text-sm">
+                            <span className={cn(
+                              "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
+                              ['TOTAL_ESPECE', 'TOTAL_VENTE_COMPTANT', 'TOTAL_VENTE_TIERS_PAYANT', 'TOTAL_TPE', 'COMPTANTS', 'TIERS_PAYANT'].includes(t.type) ? "bg-emerald-500/10 text-emerald-500" :
+                              ['TOTAL_VENTE_A_CREDIT', 'COMMANDE', 'FACTURE'].includes(t.type) ? "bg-amber-500/10 text-amber-500" :
+                              "bg-slate-500/10 text-slate-500"
+                            )}>
+                              {t.type.replace(/_/g, ' ')}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-900 dark:text-white truncate max-w-[200px]">{t.description}</td>
+                          <td className="px-6 py-4 text-sm font-mono font-bold text-right text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
+                        </tr>
+                      ))}
+                      {transactions.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="px-6 py-8 text-center text-slate-500 text-sm italic">Aucune saisie enregistrée</td>
                         </tr>
                       )}
                     </tbody>
