@@ -1158,28 +1158,34 @@ export default function App() {
   };
 
   const handleRestoreBackup = async (backup: Backup) => {
-    if (!window.confirm(`Êtes-vous sûr de vouloir restaurer les données à partir de "${backup.name}" ? Cette action écrasera toutes les données actuelles.`)) {
-      return;
-    }
-    
-    setIsRestoring(true);
-    try {
-      await api.restoreBackup(backup);
-      // Reload everything
-      const [txs, ents, auditLogs] = await Promise.all([
-        api.getTransactions(),
-        api.getEntities(),
-        api.getLogs()
-      ]);
-      setTransactions(txs);
-      setEntities(ents);
-      setLogs(auditLogs);
-      toast.success("Restauration effectuée avec succès");
-    } catch (error) {
-      toast.error("Erreur lors de la restauration");
-    } finally {
-      setIsRestoring(false);
-    }
+    const requiredString = `delete/restore/${backup.name.replace(/\s+/g, '_')}`;
+    setConfirmDialog({
+      open: true,
+      title: 'Restaurer Sauvegarde',
+      message: `Êtes-vous sûr de vouloir restaurer les données à partir de "${backup.name}" ? Cette action écrasera toutes les données actuelles.`,
+      requiredString,
+      onConfirm: async () => {
+        setIsRestoring(true);
+        try {
+          await api.restoreBackup(backup);
+          // Reload everything
+          const [txs, ents, auditLogs] = await Promise.all([
+            api.getTransactions(),
+            api.getEntities(),
+            api.getLogs()
+          ]);
+          setTransactions(txs);
+          setEntities(ents);
+          setLogs(auditLogs);
+          toast.success("Restauration effectuée avec succès");
+          setConfirmDialog(null);
+        } catch (error) {
+          toast.error("Erreur lors de la restauration");
+        } finally {
+          setIsRestoring(false);
+        }
+      }
+    });
   };
 
   const handleUploadBackup = async (event: React.ChangeEvent<HTMLInputElement>) => {
