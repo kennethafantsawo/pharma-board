@@ -57,6 +57,20 @@
         "newData": { "type": "object" }
       },
       "required": ["timestamp", "action", "targetType", "targetId", "details"]
+    },
+    "Backup": {
+      "title": "Backup",
+      "description": "Data backup record.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["AUTO", "MANUAL"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" },
+        "transactions": { "type": "array", "items": { "$ref": "#/entities/Transaction" } },
+        "entities": { "type": "array", "items": { "$ref": "#/entities/Entity" } }
+      },
+      "required": ["name", "type", "timestamp", "createdBy", "transactions", "entities"]
     }
   },
   "firestore": {
@@ -75,6 +89,10 @@
     "/audit_logs/{logId}": {
       "schema": { "$ref": "#/entities/AuditLog" },
       "description": "Audit logs."
+    },
+    "/backups/{backupId}": {
+      "schema": { "$ref": "#/entities/Backup" },
+      "description": "Data backups."
     }
   }
 }

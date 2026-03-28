@@ -127,6 +127,16 @@ service cloud.firestore {
              (!('newData' in data) || data.newData is map);
     }
 
+    function isValidBackup(data) {
+      return hasRequiredFields(['name', 'type', 'timestamp', 'createdBy', 'transactions', 'entities']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.type in ['AUTO', 'MANUAL'] &&
+             isValidDateString(data.timestamp) &&
+             data.createdBy is string &&
+             data.transactions is list &&
+             data.entities is list;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -159,6 +169,13 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isValidAuditLog(request.resource.data);
       allow update: if false; // Logs should be immutable
       allow delete: if false; // Logs should not be deleted
+    }
+
+    match /backups/{backupId} {
+      allow read: if isAdmin() || isViewer();
+      allow create: if isAdmin() && isValidBackup(request.resource.data);
+      allow update: if false; // Backups should be immutable
+      allow delete: if isAdmin();
     }
   }
 }

@@ -93,7 +93,7 @@ import { Toaster, toast } from 'sonner';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import { auth } from './lib/firebase';
-import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword } from 'firebase/auth';
 
 type Period = 'JOUR' | 'SEMAINE' | 'QUINZAINE' | 'MOIS' | 'TRIMESTRE' | 'SEMESTRE' | 'ANNEE';
 
@@ -221,7 +221,7 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setIsLoggedIn(true);
         const email = user.email || '';
@@ -229,6 +229,23 @@ export default function App() {
           setUserRole('directrice');
         } else if (email === 'assistant@pharmapro.com' || email === 'kennethafantsawo@gmail.com') {
           setUserRole('assistant');
+        } else {
+          // Default role for other authenticated users
+          setUserRole('assistant');
+        }
+        
+        // Initialize user document if not exists
+        try {
+          const userDoc = await api.getUser(user.uid);
+          if (!userDoc) {
+            await api.createUser({
+              uid: user.uid,
+              email: user.email || '',
+              role: (email === 'directrice@pharmapro.com') ? 'user' : 'admin'
+            });
+          }
+        } catch (error) {
+          console.error("Erreur lors de l'initialisation de l'utilisateur:", error);
         }
       } else {
         setIsLoggedIn(false);
@@ -260,6 +277,7 @@ export default function App() {
           const updatedBackups = await api.getBackups();
           setBackups(updatedBackups);
         } catch (error) {
+          console.error("Erreur lors du chargement des données:", error);
           toast.error("Erreur lors du chargement des données");
         } finally {
           setIsLoading(false);
@@ -291,56 +309,125 @@ export default function App() {
       return;
     }
 
-    try {
-      const updates: Partial<Transaction> = {
-        amount: newAmount,
-        date: new Date(editDate),
-        type: editType as TransactionType,
-        description: editDescription,
-        entityId: editEntityId || undefined,
-        status: (editStatus as any) || undefined,
-        reason: editReason || undefined,
-        dossiers: editDossiers ? parseInt(editDossiers) : undefined,
-        beneficiaires: editBeneficiaires ? parseInt(editBeneficiaires) : undefined,
-      };
+    const requiredString = `delete/${editingTransaction.type}/${editingTransaction.amount}`;
+    setConfirmDialog({
+      open: true,
+      title: 'Confirmer la modification',
+      message: 'Voulez-vous vraiment modifier cette transaction ? Cette action nécessite une confirmation.',
+      requiredString,
+      onConfirm: async () => {
+        try {
+          const updates: Partial<Transaction> = {
+            amount: newAmount,
+            date: new Date(editDate),
+            type: editType as TransactionType,
+            description: editDescription,
+            entityId: editEntityId || undefined,
+            status: (editStatus as any) || undefined,
+            reason: editReason || undefined,
+            dossiers: editDossiers ? parseInt(editDossiers) : undefined,
+            beneficiaires: editBeneficiaires ? parseInt(editBeneficiaires) : undefined,
+          };
 
-      const updatedTx = await api.updateTransaction(editingTransaction.id, updates);
-      
-      setTransactions(prev => prev.map(t => 
-        t.id === editingTransaction.id ? { ...t, ...updatedTx, date: new Date(editDate) } : t
-      ));
+          const updatedTx = await api.updateTransaction(editingTransaction.id, updates);
+          
+          setTransactions(prev => prev.map(t => 
+            t.id === editingTransaction.id ? { ...t, ...updatedTx, date: new Date(editDate) } : t
+          ));
 
-      addLog(
-        'UPDATE', 
-        'TRANSACTION', 
-        editingTransaction.id, 
-        `Modification transaction: ${editingTransaction.type} -> ${editType}`,
-        editingTransaction,
-        { ...editingTransaction, ...updates }
-      );
+          addLog(
+            'UPDATE', 
+            'TRANSACTION', 
+            editingTransaction.id, 
+            `Modification transaction: ${editingTransaction.type} -> ${editType}`,
+            editingTransaction,
+            { ...editingTransaction, ...updates }
+          );
 
-      toast.success('Transaction mise à jour');
-      setEditingTransaction(null);
-      setEditAmount('');
-      setEditDate('');
-      setEditType('');
-      setEditDescription('');
-      setEditEntityId('');
-      setEditStatus('');
-      setEditReason('');
-      setEditDossiers('');
-      setEditBeneficiaires('');
-    } catch (error) {
-      console.error(error);
-      toast.error('Erreur lors de la mise à jour');
-    }
+          toast.success('Transaction mise à jour');
+          setEditingTransaction(null);
+          setEditAmount('');
+          setEditDate('');
+          setEditType('');
+          setEditDescription('');
+          setEditEntityId('');
+          setEditStatus('');
+          setEditReason('');
+          setEditDossiers('');
+          setEditBeneficiaires('');
+          setConfirmDialog(null);
+        } catch (error) {
+          console.error(error);
+          toast.error('Erreur lors de la mise à jour');
+        }
+      }
+    });
   };
 
   const [editingEntity, setEditingEntity] = useState<Entity | null>(null);
-  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void; requiredString?: string } | null>(null);
+  const [confirmInput, setConfirmInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Auth Logic
+  const handleGoogleLogin = async () => {
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
+    const loadingToast = toast.loading('Connexion avec Google...');
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      toast.dismiss(loadingToast);
+      toast.success('Connexion réussie avec Google');
+    } catch (error: any) {
+      toast.dismiss(loadingToast);
+      console.error("Google Login error:", error);
+      toast.error('Échec de la connexion avec Google');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const [isSignUp, setIsSignUp] = useState(false);
+
+  const handleSignUp = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (isLoggingIn) return;
+
+    const formData = new FormData(e.currentTarget);
+    const user = formData.get('user') as string;
+    const pass = formData.get('pass') as string;
+
+    setIsLoggingIn(true);
+    const loadingToast = toast.loading('Création du compte...');
+    try {
+      const email = `${user.toLowerCase().trim()}@pharmapro.com`;
+      await createUserWithEmailAndPassword(auth, email, pass);
+      
+      toast.dismiss(loadingToast);
+      setIsLoggedIn(true);
+      setUserRole(user.toLowerCase().trim() as 'directrice' | 'assistant');
+      setLoginError('');
+      addLog('CREATE', 'AUTH', user, `Création compte utilisateur: ${user}`);
+      toast.success(`Compte créé ! Bienvenue, ${user}`);
+    } catch (error: any) {
+      toast.dismiss(loadingToast);
+      console.error("SignUp error:", error);
+      
+      let message = 'Erreur lors de la création du compte';
+      if (error.code === 'auth/email-already-in-use') {
+        message = 'Cet identifiant est déjà utilisé.';
+      } else if (error.code === 'auth/weak-password') {
+        message = 'Le mot de passe est trop court (min 6 caractères).';
+      }
+      
+      setLoginError(message);
+      toast.error(message);
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (isLoggingIn) return;
@@ -367,7 +454,9 @@ export default function App() {
       console.error("Login crash:", error);
       
       let message = 'Identifiants ou mot de passe incorrects';
-      if (error.code === 'auth/too-many-requests') {
+      if (error.code === 'auth/invalid-credential') {
+        message = 'Identifiants ou mot de passe incorrects. Veuillez vérifier vos informations ou utiliser la connexion Google.';
+      } else if (error.code === 'auth/too-many-requests') {
         message = 'Trop de tentatives de connexion. Votre compte est temporairement bloqué pour des raisons de sécurité. Veuillez réessayer plus tard.';
       } else if (error.code === 'auth/network-request-failed') {
         message = 'Erreur de connexion réseau. Veuillez vérifier votre connexion internet.';
@@ -997,10 +1086,13 @@ export default function App() {
   // CRUD Handlers
   const handleDeleteTransaction = (id: string) => {
     const tx = transactions.find(t => t.id === id);
+    if (!tx) return;
+    const requiredString = `delete/${tx.type}/${tx.amount}`;
     setConfirmDialog({
       open: true,
       title: 'Supprimer Transaction',
       message: 'Voulez-vous vraiment supprimer cette donnée ? Cette action est irréversible.',
+      requiredString,
       onConfirm: async () => {
         try {
           await api.deleteTransaction(id);
@@ -1017,10 +1109,13 @@ export default function App() {
 
   const handleDeleteEntity = (id: string) => {
     const entity = entities.find(e => e.id === id);
+    if (!entity) return;
+    const requiredString = `delete/${entity.name}`;
     setConfirmDialog({
       open: true,
       title: 'Supprimer Partenaire',
       message: `Voulez-vous vraiment supprimer ${entity?.name} ? Cette action est irréversible.`,
+      requiredString,
       onConfirm: async () => {
         try {
           await api.deleteEntity(id);
@@ -1114,7 +1209,8 @@ export default function App() {
   
   const handleSaveEntity = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const formData = new FormData(form);
     const name = formData.get('name') as string;
     const type = formData.get('type') as EntityType;
     const phone = formData.get('phone') as string;
@@ -1123,11 +1219,27 @@ export default function App() {
 
     try {
       if (editingEntity) {
-        const updated = { ...editingEntity, name, type, phone, email, address };
-        const saved = await api.saveEntity(updated);
-        setEntities(prev => prev.map(e => e.id === editingEntity.id ? saved : e));
-        addLog('UPDATE', 'ENTITY', updated.id, `Modification ${type.toLowerCase()} ${name}`, editingEntity, updated);
-        toast.success('Partenaire mis à jour');
+        const requiredString = `delete/${editingEntity.name}`;
+        setConfirmDialog({
+          open: true,
+          title: 'Confirmer la modification',
+          message: `Voulez-vous vraiment modifier ${editingEntity.name} ? Cette action nécessite une confirmation.`,
+          requiredString,
+          onConfirm: async () => {
+            try {
+              const updated = { ...editingEntity, name, type, phone, email, address };
+              const saved = await api.saveEntity(updated);
+              setEntities(prev => prev.map(e => e.id === editingEntity.id ? saved : e));
+              addLog('UPDATE', 'ENTITY', updated.id, `Modification ${type.toLowerCase()} ${name}`, editingEntity, updated);
+              toast.success('Partenaire mis à jour');
+              setEditingEntity(null);
+              form.reset();
+              setConfirmDialog(null);
+            } catch (error) {
+              toast.error("Erreur lors de la modification");
+            }
+          }
+        });
       } else {
         const newEntity: Partial<Entity> = {
           name,
@@ -1141,9 +1253,9 @@ export default function App() {
         setEntities(prev => [...prev, saved]);
         addLog('CREATE', 'ENTITY', saved.id, `Ajout ${type.toLowerCase()} ${name}`, undefined, saved);
         toast.success('Partenaire ajouté');
+        setEditingEntity(null);
+        form.reset();
       }
-      setEditingEntity(null);
-      (e.target as HTMLFormElement).reset();
     } catch (error) {
       console.error("Erreur détaillée lors de l'enregistrement du partenaire:", error);
       let message = "Erreur lors de l'enregistrement";
@@ -1195,7 +1307,7 @@ export default function App() {
             <p className="text-slate-500 dark:text-slate-400 text-sm">Dashboard de Gestion Interne</p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-6">
+          <form onSubmit={isSignUp ? handleSignUp : handleLogin} className="space-y-6">
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Utilisateur</label>
               <input 
@@ -1225,7 +1337,53 @@ export default function App() {
                 isLoggingIn && "opacity-50 cursor-not-allowed"
               )}
             >
-              {isLoggingIn ? 'Connexion...' : 'Se connecter'}
+              {isLoggingIn ? (isSignUp ? 'Création...' : 'Connexion...') : (isSignUp ? 'Créer un compte' : 'Se connecter')}
+            </button>
+
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={() => { setIsSignUp(!isSignUp); setLoginError(''); }}
+                className="text-xs text-emerald-600 hover:text-emerald-500 font-medium transition-colors"
+              >
+                {isSignUp ? 'Déjà un compte ? Se connecter' : "Pas de compte ? S'inscrire"}
+              </button>
+            </div>
+
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-200 dark:border-white/10"></div>
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white dark:bg-[#0e1629] px-2 text-slate-500">Ou continuer avec</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={isLoggingIn}
+              className="w-full flex items-center justify-center gap-3 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/10 text-slate-900 dark:text-white font-bold py-4 rounded-xl transition-all shadow-sm"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <path
+                  fill="currentColor"
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                />
+                <path
+                  fill="currentColor"
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                />
+                <path
+                  fill="currentColor"
+                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
+                />
+                <path
+                  fill="currentColor"
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.66l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                />
+              </svg>
+              Google
             </button>
           </form>
         </motion.div>
@@ -1477,7 +1635,7 @@ export default function App() {
           {/* Confirmation Modal */}
           <AnimatePresence>
             {confirmDialog && confirmDialog.open && (
-              <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
                 <motion.div 
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
@@ -1488,17 +1646,42 @@ export default function App() {
                     <AlertTriangle size={24} />
                     <h3 className="text-lg font-bold text-slate-900 dark:text-white">{confirmDialog.title}</h3>
                   </div>
-                  <p className="text-slate-500 dark:text-slate-400 mb-6 text-sm">{confirmDialog.message}</p>
+                  <p className="text-slate-500 dark:text-slate-400 mb-4 text-sm">{confirmDialog.message}</p>
+                  
+                  {confirmDialog.requiredString && (
+                    <div className="mb-6">
+                      <p className="text-xs text-slate-400 mb-2">Veuillez saisir <span className="font-mono font-bold text-slate-900 dark:text-white select-all">{confirmDialog.requiredString}</span> pour confirmer :</p>
+                      <input 
+                        type="text"
+                        autoFocus
+                        className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-colors text-sm"
+                        placeholder={confirmDialog.requiredString}
+                        value={confirmInput}
+                        onChange={(e) => setConfirmInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && confirmInput === confirmDialog.requiredString) {
+                            confirmDialog.onConfirm();
+                            setConfirmInput('');
+                          }
+                        }}
+                      />
+                    </div>
+                  )}
+
                   <div className="flex gap-3">
                     <button 
-                      onClick={() => setConfirmDialog(null)}
+                      onClick={() => { setConfirmDialog(null); setConfirmInput(''); }}
                       className="flex-1 px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10 transition-colors text-sm font-medium border border-slate-200 dark:border-white/10"
                     >
                       Annuler
                     </button>
                     <button 
-                      onClick={confirmDialog.onConfirm}
-                      className="flex-1 px-4 py-2 rounded-xl bg-red-600 text-white hover:bg-red-500 transition-colors text-sm font-medium"
+                      onClick={() => { confirmDialog.onConfirm(); setConfirmInput(''); }}
+                      disabled={confirmDialog.requiredString ? confirmInput !== confirmDialog.requiredString : false}
+                      className={cn(
+                        "flex-1 px-4 py-2 rounded-xl bg-red-600 text-white hover:bg-red-500 transition-colors text-sm font-medium",
+                        confirmDialog.requiredString && confirmInput !== confirmDialog.requiredString && "opacity-50 cursor-not-allowed grayscale"
+                      )}
                     >
                       Confirmer
                     </button>

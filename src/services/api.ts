@@ -1,6 +1,6 @@
 import { Transaction, Entity, AuditLog, Backup } from '../lib/data';
 import { db, auth } from '../lib/firebase';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, limit, writeBatch, where } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, limit, writeBatch, where, setDoc, getDoc } from 'firebase/firestore';
 
 // Helper to simulate network delay for auth
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -183,6 +183,31 @@ export const api = {
       await deleteDoc(doc(db, 'entities', id));
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `entities/${id}`);
+      throw error;
+    }
+  },
+
+  async getUser(uid: string): Promise<any | null> {
+    try {
+      const docRef = doc(db, 'users', uid);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        return { ...docSnap.data(), id: docSnap.id };
+      }
+      return null;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, `users/${uid}`);
+      return null;
+    }
+  },
+
+  async createUser(user: any): Promise<any> {
+    try {
+      const payload = cleanPayload({ ...user });
+      await setDoc(doc(db, 'users', user.uid), payload);
+      return payload;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'users');
       throw error;
     }
   },
