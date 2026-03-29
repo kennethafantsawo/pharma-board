@@ -1247,6 +1247,12 @@ export default function App() {
       alignment: { horizontal: "center" }
     };
 
+    const sectionHeaderStyle = {
+      font: { bold: true, sz: 12, color: { rgb: "FFFFFF" } },
+      fill: { fgColor: { rgb: "334155" } },
+      alignment: { horizontal: "left" }
+    };
+
     const kpiLabelStyle = {
       font: { bold: true, color: { rgb: "64748b" } },
       fill: { fgColor: { rgb: "f8fafc" } }
@@ -1257,9 +1263,9 @@ export default function App() {
       alignment: { horizontal: "right" }
     };
 
-    // 1. Dashboard Sheet
-    const dashboardData = [
-      ["RAPPORT DE GESTION PHARMACIE - AÉROPORT DE LOMÉ"],
+    // 1. Consolidated Data Preparation
+    const consolidatedData: any[][] = [
+      ["RAPPORT DE GESTION CONSOLIDÉ - PHARMA PRO (AÉROPORT DE LOMÉ)"],
       [],
       ["PARAMÈTRES DU RAPPORT"],
       ["Période sélectionnée", selectedPeriod],
@@ -1283,70 +1289,97 @@ export default function App() {
       ["Totale Remise", recettesData.totaleRemise],
       ["Péremption & Avariés", recettesData.peremptionAvarie],
       ["TOTAL TOUTES VENTES CONFONDU", recettesData.totalGlobal],
+      [],
+      ["RÉCAPITULATIF PAR FOURNISSEUR"],
+      ["Fournisseur", "Total Commandes", "Total Factures", "Solde"],
     ];
 
-    const wsDashboard = XLSX.utils.aoa_to_sheet(dashboardData);
+    // Add Supplier Data
+    entities.filter(e => e.type === 'FOURNISSEUR').forEach(s => {
+      const sTxs = transactions.filter(t => t.entityId === s.id);
+      const cmds = sTxs.filter(t => t.type === 'COMMANDE').reduce((sum, t) => sum + t.amount, 0);
+      const facts = sTxs.filter(t => t.type === 'FACTURE').reduce((sum, t) => sum + t.amount, 0);
+      consolidatedData.push([s.name, cmds, facts, cmds - facts]);
+    });
+
+    consolidatedData.push([], ["CONSOMMATIONS SPÉCIALES"]);
+    consolidatedData.push(["DCSSA", metrics.consommationDCSSA]);
+    consolidatedData.push(["Implants", metrics.consommationImplant]);
+    consolidatedData.push([], ["JOURNAL GLOBAL DES TRANSACTIONS"]);
+    consolidatedData.push(["Date", "Type", "Montant (FCFA)", "Catégorie", "Description", "Entité", "Statut"]);
+
+    // Add all filtered transactions
+    filteredTransactions.forEach(t => {
+      consolidatedData.push([
+        format(t.date, 'dd/MM/yyyy'),
+        t.type,
+        t.amount,
+        t.category,
+        t.description,
+        entities.find(e => e.id === t.entityId)?.name || '-',
+        t.status || '-'
+      ]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(consolidatedData);
     
-    // Styling Dashboard
-    wsDashboard['A1'].s = titleStyle;
-    wsDashboard['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
+    // Styling
+    ws['A1'].s = titleStyle;
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 6 } }];
     
-    // Style KPI Section
-    ['A3', 'A8', 'A15'].forEach(addr => { if(wsDashboard[addr]) wsDashboard[addr].s = { font: { bold: true, sz: 12, color: { rgb: "334155" } } }; });
-    
+    // Section Headers Styling
+    const sectionRows = [3, 8, 15, 26, 31, 35]; // Adjust based on data structure
+    // We need to find the rows dynamically or use fixed ones if structure is stable
+    // Let's find them by searching the array
+    consolidatedData.forEach((row, idx) => {
+      const firstCell = row[0];
+      if (["PARAMÈTRES DU RAPPORT", "RÉSUMÉ DES INDICATEURS CLÉS (KPI)", "RÉPARTITION DES RECETTES", "RÉCAPITULATIF PAR FOURNISSEUR", "CONSOMMATIONS SPÉCIALES", "JOURNAL GLOBAL DES TRANSACTIONS"].includes(firstCell)) {
+        const addr = XLSX.utils.encode_cell({ r: idx, c: 0 });
+        ws[addr].s = sectionHeaderStyle;
+        ws['!merges']?.push({ s: { r: idx, c: 0 }, e: { r: idx, c: 6 } });
+      }
+    });
+
+    // KPI and Recettes Styling (Fixed ranges for simplicity in this consolidated view)
     for(let i = 9; i <= 13; i++) {
-      wsDashboard[`A${i}`].s = kpiLabelStyle;
-      wsDashboard[`B${i}`].s = kpiValueStyle;
-      wsDashboard[`B${i}`].z = "#,##0 \"FCFA\"";
-    }
-
-    for(let i = 16; i <= 24; i++) {
-      wsDashboard[`A${i}`].s = kpiLabelStyle;
-      wsDashboard[`B${i}`].s = kpiValueStyle;
-      wsDashboard[`B${i}`].z = "#,##0 \"FCFA\"";
-    }
-
-    wsDashboard['!cols'] = [{ wch: 30 }, { wch: 20 }];
-    XLSX.utils.book_append_sheet(wb, wsDashboard, "Tableau de Bord");
-
-    // 2. Transactions Sheet
-    const txData = filteredTransactions.map(t => ({
-      Date: format(t.date, 'dd/MM/yyyy'),
-      Type: t.type,
-      Montant: t.amount,
-      Catégorie: t.category,
-      Description: t.description,
-      Entité: entities.find(e => e.id === t.entityId)?.name || '-',
-      Statut: t.status || '-'
-    }));
-
-    const wsTransactions = XLSX.utils.json_to_sheet(txData);
-    
-    // Style Transactions Headers
-    const range = XLSX.utils.decode_range(wsTransactions['!ref']!);
-    for (let C = range.s.c; C <= range.e.c; ++C) {
-      const address = XLSX.utils.encode_col(C) + "1";
-      if (wsTransactions[address]) wsTransactions[address].s = headerStyle;
-    }
-
-    // Style Amount Column
-    for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-      const address = XLSX.utils.encode_col(2) + (R + 1);
-      if (wsTransactions[address]) {
-        wsTransactions[address].s = { font: { bold: true }, alignment: { horizontal: "right" } };
-        wsTransactions[address].z = "#,##0";
+      const addrA = XLSX.utils.encode_cell({ r: i-1, c: 0 });
+      const addrB = XLSX.utils.encode_cell({ r: i-1, c: 1 });
+      if(ws[addrA]) ws[addrA].s = kpiLabelStyle;
+      if(ws[addrB]) {
+        ws[addrB].s = kpiValueStyle;
+        ws[addrB].z = "#,##0 \"FCFA\"";
       }
     }
 
-    wsTransactions['!cols'] = [
-      { wch: 12 }, { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 35 }, { wch: 20 }, { wch: 15 }
+    for(let i = 16; i <= 24; i++) {
+      const addrA = XLSX.utils.encode_cell({ r: i-1, c: 0 });
+      const addrB = XLSX.utils.encode_cell({ r: i-1, c: 1 });
+      if(ws[addrA]) ws[addrA].s = kpiLabelStyle;
+      if(ws[addrB]) {
+        ws[addrB].s = kpiValueStyle;
+        ws[addrB].z = "#,##0 \"FCFA\"";
+      }
+    }
+
+    // Style Table Headers (Supplier and Transactions)
+    consolidatedData.forEach((row, idx) => {
+      if (row[0] === "Fournisseur" || row[0] === "Date") {
+        for (let c = 0; c < row.length; c++) {
+          const addr = XLSX.utils.encode_cell({ r: idx, c });
+          if (ws[addr]) ws[addr].s = headerStyle;
+        }
+      }
+    });
+
+    ws['!cols'] = [
+      { wch: 15 }, { wch: 25 }, { wch: 18 }, { wch: 15 }, { wch: 35 }, { wch: 20 }, { wch: 15 }
     ];
 
-    XLSX.utils.book_append_sheet(wb, wsTransactions, "Détail Transactions");
+    XLSX.utils.book_append_sheet(wb, ws, "Rapport Consolidé");
 
-    XLSX.writeFile(wb, `PharmaPro_Export_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);
-    toast.success('Export Excel professionnel généré');
-    addLog('CREATE', 'EXPORT', 'excel', 'Export Excel complet avec mise en forme');
+    XLSX.writeFile(wb, `PharmaPro_SuperExport_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);
+    toast.success('Super Export Excel consolidé généré');
+    addLog('CREATE', 'EXPORT', 'super_excel', 'Export Excel consolidé (feuille unique)');
   };
 
   // CRUD Handlers
@@ -2271,7 +2304,7 @@ export default function App() {
                           <Cell fill="#3b82f6" />
                           <Cell fill="#8b5cf6" />
                           <Cell fill="#f59e0b" />
-                          <Cell fill="#059669" />
+                          <Cell fill="#06b6d4" />
                           <Cell fill="#ef4444" />
                         </Pie>
                         <Tooltip 
@@ -2398,7 +2431,7 @@ export default function App() {
                 <StatCard label="Total Vente Tiers Payant" value={formatCurrency(recettesData.totalVenteTiersPayant)} subValue="Total avec assurance" color="blue" />
                 <StatCard label="Part Assurance à Réglée" value={formatCurrency(recettesData.partAssuranceAReglee)} subValue="Part mutuelle" color="amber" />
                 <StatCard label="Total Vente à Crédit" value={formatCurrency(recettesData.totalVenteACredit)} subValue="Crédits patients" color="amber" />
-                <StatCard label="Total TPE" value={formatCurrency(recettesData.totalTPE)} subValue="Paiements par carte" color="emerald" />
+                <StatCard label="Total TPE" value={formatCurrency(recettesData.totalTPE)} subValue="Paiements par carte" color="cyan" />
                 <StatCard label="Totale Toutes Ventes Confondu" value={formatCurrency(recettesData.totalGlobal)} subValue="Chiffre d'affaires" color="emerald" />
               </div>
 
@@ -2427,6 +2460,7 @@ export default function App() {
                       <Line type="monotone" dataKey="comptants" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} name="Total Comptant (Espèce - Part Patient)" />
                       <Line type="monotone" dataKey="tiers" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} name="Part Assurance" />
                       <Line type="monotone" dataKey="credit" stroke="#f59e0b" strokeWidth={3} dot={{ r: 4 }} name="Total Vente à Crédit" />
+                      <Line type="monotone" dataKey="tpe" stroke="#06b6d4" strokeWidth={3} dot={{ r: 4 }} name="Total TPE" />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -2449,6 +2483,7 @@ export default function App() {
                       { label: 'Total Vente Tiers Payant', val: recettesData.totalVenteTiersPayant, color: 'text-blue-500', desc: 'Valeur totale des ventes avec assurance' },
                       { label: 'Part Assurance à Réglée', val: recettesData.partAssuranceAReglee, color: 'text-amber-500', desc: 'Part à payer par la mutuelle' },
                       { label: 'Total Vente à Crédit', val: recettesData.totalVenteACredit, color: 'text-amber-500', desc: 'Ventes à crédit patients' },
+                      { label: 'Total TPE', val: recettesData.totalTPE, color: 'text-cyan-500', desc: 'Paiements par carte bancaire' },
                     ]).map((row) => (
                       <tr key={row.label} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                         <td className="px-6 py-4">
@@ -3230,7 +3265,7 @@ export default function App() {
                 <StatCard label="Total Vente Tiers Payant" value={formatCurrency(recettesData.totalVenteTiersPayant)} subValue="Total avec assurance" color="blue" />
                 <StatCard label="Part Assurance à Réglée" value={formatCurrency(recettesData.partAssuranceAReglee)} subValue="Part mutuelle" color="amber" />
                 <StatCard label="Total Vente à Crédit" value={formatCurrency(recettesData.totalVenteACredit)} subValue="Crédits patients" color="amber" />
-                <StatCard label="Total TPE" value={formatCurrency(recettesData.totalTPE)} subValue="Paiements par carte" color="emerald" />
+                <StatCard label="Total TPE" value={formatCurrency(recettesData.totalTPE)} subValue="Paiements par carte" color="cyan" />
                 <StatCard label="Totale Remise" value={formatCurrency(recettesData.totaleRemise)} subValue="Remises accordées" color="red" />
                 <StatCard label="Totale Toutes Ventes Confondu" value={formatCurrency(recettesData.totalGlobal)} subValue="Chiffre d'affaires" color="emerald" />
               </div>
