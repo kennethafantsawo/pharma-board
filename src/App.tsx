@@ -132,6 +132,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('accueil');
   const [subTab, setSubTab] = useState<string>('');
   const [expandedSupplierId, setExpandedSupplierId] = useState<string | null>(null);
+  const [selectedSupplierFilter, setSelectedSupplierFilter] = useState<string>('');
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
 
   const handleSort = (key: string) => {
@@ -850,7 +851,7 @@ export default function App() {
           groups[key].comptants += t.amount;
           groups[key].total += t.amount;
           groups[key].entrees += t.amount;
-        } else if (!filtered.some(f => f.type === 'TOTAL_VENTE_COMPTANT' && isSameDay(f.date, t.date))) {
+        } else if (!chartTransactions.some(f => f.type === 'TOTAL_VENTE_COMPTANT' && isSameDay(f.date, t.date))) {
           groups[key].comptants += t.amount;
           groups[key].total += t.amount;
           groups[key].entrees += t.amount;
@@ -861,7 +862,7 @@ export default function App() {
           groups[key].tiers += t.amount;
           groups[key].total += t.amount;
           groups[key].entrees += t.amount;
-        } else if (!filtered.some(f => f.type === 'TOTAL_VENTE_TIERS_PAYANT' && isSameDay(f.date, t.date))) {
+        } else if (!chartTransactions.some(f => f.type === 'TOTAL_VENTE_TIERS_PAYANT' && isSameDay(f.date, t.date))) {
           groups[key].tiers += t.amount;
           groups[key].total += t.amount;
           groups[key].entrees += t.amount;
@@ -872,7 +873,7 @@ export default function App() {
           groups[key].credit += t.amount;
           groups[key].total += t.amount;
           groups[key].entrees += t.amount;
-        } else if (!filtered.some(f => f.type === 'TOTAL_VENTE_A_CREDIT' && isSameDay(f.date, t.date))) {
+        } else if (!chartTransactions.some(f => f.type === 'TOTAL_VENTE_A_CREDIT' && isSameDay(f.date, t.date))) {
           groups[key].credit += t.amount;
           groups[key].total += t.amount;
           groups[key].entrees += t.amount;
@@ -889,11 +890,9 @@ export default function App() {
       }
       if (t.type === 'CONSOMMATION_DCSSA') {
         groups[key].dcssa += t.amount;
-        groups[key].sorties += t.amount;
       }
       if (t.type === 'CONSOMMATION_KOUNDJOURE') {
         groups[key].koundjoure += t.amount;
-        groups[key].sorties += t.amount;
       }
     });
 
@@ -2037,6 +2036,7 @@ export default function App() {
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Montant (GNF)</label>
                         <input 
                           type="number"
+                          step="0.01"
                           value={editAmount}
                           onChange={(e) => setEditAmount(e.target.value)}
                           className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-mono"
@@ -2102,6 +2102,7 @@ export default function App() {
                           <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nombre de Dossiers</label>
                           <input 
                             type="number"
+                            step="0.01"
                             value={editDossiers}
                             onChange={(e) => setEditDossiers(e.target.value)}
                             className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
@@ -2114,6 +2115,7 @@ export default function App() {
                           <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nombre de Bénéficiaires</label>
                           <input 
                             type="number"
+                            step="0.01"
                             value={editBeneficiaires}
                             onChange={(e) => setEditBeneficiaires(e.target.value)}
                             className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
@@ -2269,7 +2271,7 @@ export default function App() {
                           <Cell fill="#3b82f6" />
                           <Cell fill="#8b5cf6" />
                           <Cell fill="#f59e0b" />
-                          <Cell fill="#14b8a6" />
+                          <Cell fill="#059669" />
                           <Cell fill="#ef4444" />
                         </Pie>
                         <Tooltip 
@@ -2354,7 +2356,8 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                      {transactions
+                      {[...transactions]
+                        .sort((a, b) => b.date.getTime() - a.date.getTime())
                         .slice(0, 10)
                         .map((t) => (
                         <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
@@ -2396,7 +2399,6 @@ export default function App() {
                 <StatCard label="Part Assurance à Réglée" value={formatCurrency(recettesData.partAssuranceAReglee)} subValue="Part mutuelle" color="amber" />
                 <StatCard label="Total Vente à Crédit" value={formatCurrency(recettesData.totalVenteACredit)} subValue="Crédits patients" color="amber" />
                 <StatCard label="Total TPE" value={formatCurrency(recettesData.totalTPE)} subValue="Paiements par carte" color="emerald" />
-                <StatCard label="Totale Remise" value={formatCurrency(recettesData.totaleRemise)} subValue="Remises accordées" color="red" />
                 <StatCard label="Totale Toutes Ventes Confondu" value={formatCurrency(recettesData.totalGlobal)} subValue="Chiffre d'affaires" color="emerald" />
               </div>
 
@@ -2425,7 +2427,6 @@ export default function App() {
                       <Line type="monotone" dataKey="comptants" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} name="Total Comptant (Espèce - Part Patient)" />
                       <Line type="monotone" dataKey="tiers" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} name="Part Assurance" />
                       <Line type="monotone" dataKey="credit" stroke="#f59e0b" strokeWidth={3} dot={{ r: 4 }} name="Total Vente à Crédit" />
-                      <Line type="monotone" dataKey="remises" stroke="#ef4444" strokeWidth={3} dot={{ r: 4 }} name="Totale Remise" />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -2448,7 +2449,6 @@ export default function App() {
                       { label: 'Total Vente Tiers Payant', val: recettesData.totalVenteTiersPayant, color: 'text-blue-500', desc: 'Valeur totale des ventes avec assurance' },
                       { label: 'Part Assurance à Réglée', val: recettesData.partAssuranceAReglee, color: 'text-amber-500', desc: 'Part à payer par la mutuelle' },
                       { label: 'Total Vente à Crédit', val: recettesData.totalVenteACredit, color: 'text-amber-500', desc: 'Ventes à crédit patients' },
-                      { label: 'Totale Remise', val: recettesData.totaleRemise, color: 'text-red-500', desc: 'Total des remises effectuées' },
                     ]).map((row) => (
                       <tr key={row.label} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                         <td className="px-6 py-4">
@@ -2575,9 +2575,24 @@ export default function App() {
 
               {subTab === 'COMMANDES' && (
                 <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white p-6 border-b border-slate-200 dark:border-white/5">Toutes les Commandes par Fournisseur</h3>
+                  <div className="p-6 border-b border-slate-200 dark:border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Toutes les Commandes par Fournisseur</h3>
+                    <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
+                      <Package size={16} className="text-slate-400" />
+                      <select
+                        value={selectedSupplierFilter}
+                        onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                        className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                      >
+                        <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
+                        {entities.filter(e => e.type === 'FOURNISSEUR').map(s => (
+                          <option key={s.id} value={s.id} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
                   <div className="divide-y divide-slate-200 dark:divide-white/5">
-                    {entities.filter(e => e.type === 'FOURNISSEUR').map(supplier => {
+                    {entities.filter(e => e.type === 'FOURNISSEUR' && (selectedSupplierFilter === '' || e.id === selectedSupplierFilter)).map(supplier => {
                       const supplierTransactions = filteredTransactions.filter(t => t.entityId === supplier.id && t.type === 'COMMANDE').sort((a, b) => b.date.getTime() - a.date.getTime());
                       if (supplierTransactions.length === 0) return null;
                       
@@ -2793,20 +2808,37 @@ export default function App() {
 
               {subTab === 'FACTURES' && (
                 <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('entityId')}>Fournisseur {getSortIcon('entityId')}</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('status')}>Statut {getSortIcon('status')}</th>
-                        {userRole !== 'directrice' && (
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                      {sortData(transactions.filter(t => t.type === 'FACTURE')).slice(0, 10).map((t) => (
+                  <div className="p-6 border-b border-slate-200 dark:border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Toutes les Factures</h3>
+                    <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
+                      <Package size={16} className="text-slate-400" />
+                      <select
+                        value={selectedSupplierFilter}
+                        onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                        className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                      >
+                        <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
+                        {entities.filter(e => e.type === 'FOURNISSEUR').map(s => (
+                          <option key={s.id} value={s.id} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('entityId')}>Fournisseur {getSortIcon('entityId')}</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('status')}>Statut {getSortIcon('status')}</th>
+                          {userRole !== 'directrice' && (
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-white/5">
+                        {sortData(filteredTransactions.filter(t => t.type === 'FACTURE' && (selectedSupplierFilter === '' || t.entityId === selectedSupplierFilter))).map((t) => (
                         <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                           <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
                           <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
@@ -2841,6 +2873,7 @@ export default function App() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               )}
             </div>
@@ -3355,11 +3388,11 @@ export default function App() {
                             <div className="space-y-3">
                               <div>
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Total Espèce</label>
-                                <input name="TOTAL_ESPECE" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors" placeholder="0" />
+                                <input name="TOTAL_ESPECE" type="number" step="0.01" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors" placeholder="0" />
                               </div>
                               <div>
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Total Vente au Comptant</label>
-                                <input name="TOTAL_VENTE_COMPTANT" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors" placeholder="0" />
+                                <input name="TOTAL_VENTE_COMPTANT" type="number" step="0.01" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors" placeholder="0" />
                               </div>
                             </div>
                           </div>
@@ -3369,15 +3402,15 @@ export default function App() {
                             <div className="space-y-3">
                               <div>
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Part Assurée Tiers Payant</label>
-                                <input name="PART_ASSUREE_TIERS_PAYANT" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 outline-none transition-colors" placeholder="0" />
+                                <input name="PART_ASSUREE_TIERS_PAYANT" type="number" step="0.01" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 outline-none transition-colors" placeholder="0" />
                               </div>
                               <div>
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Total Vente Tiers Payant</label>
-                                <input name="TOTAL_VENTE_TIERS_PAYANT" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 outline-none transition-colors" placeholder="0" />
+                                <input name="TOTAL_VENTE_TIERS_PAYANT" type="number" step="0.01" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 outline-none transition-colors" placeholder="0" />
                               </div>
                               <div>
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Part Assurance à Réglée</label>
-                                <input name="PART_ASSURANCE_A_REGLEE" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 outline-none transition-colors" placeholder="0" />
+                                <input name="PART_ASSURANCE_A_REGLEE" type="number" step="0.01" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 outline-none transition-colors" placeholder="0" />
                               </div>
                             </div>
                           </div>
@@ -3387,19 +3420,19 @@ export default function App() {
                             <div className="space-y-3">
                               <div>
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Total Vente à Crédit</label>
-                                <input name="TOTAL_VENTE_A_CREDIT" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none transition-colors" placeholder="0" />
+                                <input name="TOTAL_VENTE_A_CREDIT" type="number" step="0.01" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none transition-colors" placeholder="0" />
                               </div>
                               <div>
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Total TPE</label>
-                                <input name="TOTAL_TPE" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors" placeholder="0" />
+                                <input name="TOTAL_TPE" type="number" step="0.01" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors" placeholder="0" />
                               </div>
                               <div>
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Totale Remise</label>
-                                <input name="TOTALE_REMISE" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-red-500 outline-none transition-colors" placeholder="0" />
+                                <input name="TOTALE_REMISE" type="number" step="0.01" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-red-500 outline-none transition-colors" placeholder="0" />
                               </div>
                               <div>
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Totale Toutes Ventes Confondu</label>
-                                <input name="TOTALE_TOUTES_VENTES_CONFONDU" type="number" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors" placeholder="0" />
+                                <input name="TOTALE_TOUTES_VENTES_CONFONDU" type="number" step="0.01" className="w-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors" placeholder="0" />
                               </div>
                             </div>
                           </div>
@@ -3501,7 +3534,7 @@ export default function App() {
                         {saisieSection !== 'VENTES' && (
                           <div>
                             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Montant</label>
-                            <input name="amount" type="number" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" placeholder="0" />
+                            <input name="amount" type="number" step="0.01" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" placeholder="0" />
                           </div>
                         )}
                       </div>
@@ -3600,7 +3633,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                        {transactions
+                        {[...transactions]
                           .filter(t => {
                             const matchesSearch = t.description.toLowerCase().includes(searchQuery.toLowerCase()) || 
                                                t.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -3613,6 +3646,7 @@ export default function App() {
                             
                             return matchesSearch && matchesType && matchesStartDate && matchesEndDate;
                           })
+                          .sort((a, b) => b.date.getTime() - a.date.getTime())
                           .slice(0, 100)
                           .map((t) => (
                           <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
