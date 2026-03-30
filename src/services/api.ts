@@ -5,6 +5,18 @@ import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy,
 // Helper to simulate network delay for auth
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+async function withRetry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
+  try {
+    return await fn();
+  } catch (error: any) {
+    if (retries > 0 && (error.code === 'unavailable' || error.code === 'deadline-exceeded')) {
+      await delay(1000 * (4 - retries));
+      return withRetry(fn, retries - 1);
+    }
+    throw error;
+  }
+}
+
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -95,7 +107,14 @@ export const api = {
       if (payload.date instanceof Date) {
         (payload as any).date = payload.date.toISOString();
       }
-      const docRef = await addDoc(collection(db, 'transactions'), payload);
+      const docRef = await withRetry(() => addDoc(collection(db, 'transactions'), payload));
+      
+      // Verification
+      const verifySnap = await withRetry(() => getDocFromServer(docRef));
+      if (!verifySnap.exists()) {
+        throw new Error("La transaction n'a pas pu être vérifiée dans Firestore");
+      }
+
       return { ...payload, id: docRef.id, date: new Date((payload as any).date) } as Transaction;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'transactions');
@@ -118,7 +137,7 @@ export const api = {
         savedTxs.push({ ...payload, id: docRef.id, date: new Date((payload as any).date) } as Transaction);
       });
       
-      await batch.commit();
+      await withRetry(() => batch.commit());
       return savedTxs;
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'transactions');
@@ -133,7 +152,17 @@ export const api = {
         (payload as any).date = payload.date.toISOString();
       }
       const docRef = doc(db, 'transactions', id);
-      await updateDoc(docRef, payload);
+      await withRetry(() => updateDoc(docRef, payload));
+      
+      // Verification
+      const verifySnap = await withRetry(() => getDocFromServer(docRef));
+      const data = verifySnap.data();
+      // Check if at least one updated field matches
+      const firstKey = Object.keys(payload)[0];
+      if (firstKey && data && data[firstKey] !== payload[firstKey]) {
+        throw new Error("La mise à jour n'a pas pu être vérifiée dans Firestore");
+      }
+
       return { ...payload, id, date: payload.date ? new Date((payload as any).date) : new Date() } as Transaction;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `transactions/${id}`);
@@ -143,7 +172,14 @@ export const api = {
 
   async deleteTransaction(id: string): Promise<void> {
     try {
-      await deleteDoc(doc(db, 'transactions', id));
+      const docRef = doc(db, 'transactions', id);
+      await withRetry(() => deleteDoc(docRef));
+      
+      // Verification
+      const verifySnap = await withRetry(() => getDocFromServer(docRef));
+      if (verifySnap.exists()) {
+        throw new Error("La suppression n'a pas pu être vérifiée dans Firestore");
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `transactions/${id}`);
       throw error;
@@ -166,10 +202,25 @@ export const api = {
       const payload = cleanPayload({ ...entity });
       if (payload.id) {
         const docRef = doc(db, 'entities', payload.id);
-        await updateDoc(docRef, payload);
+        await withRetry(() => updateDoc(docRef, payload));
+        
+        // Verification
+        const verifySnap = await withRetry(() => getDocFromServer(docRef));
+        const data = verifySnap.data();
+        if (data && data.name !== payload.name) {
+          throw new Error("La mise à jour du fournisseur n'a pas pu être vérifiée");
+        }
+
         return { ...payload } as Entity;
       } else {
-        const docRef = await addDoc(collection(db, 'entities'), payload);
+        const docRef = await withRetry(() => addDoc(collection(db, 'entities'), payload));
+        
+        // Verification
+        const verifySnap = await withRetry(() => getDocFromServer(docRef));
+        if (!verifySnap.exists()) {
+          throw new Error("La création du fournisseur n'a pas pu être vérifiée");
+        }
+
         return { ...payload, id: docRef.id } as Entity;
       }
     } catch (error) {
@@ -180,7 +231,14 @@ export const api = {
 
   async deleteEntity(id: string): Promise<void> {
     try {
-      await deleteDoc(doc(db, 'entities', id));
+      const docRef = doc(db, 'entities', id);
+      await withRetry(() => deleteDoc(docRef));
+      
+      // Verification
+      const verifySnap = await withRetry(() => getDocFromServer(docRef));
+      if (verifySnap.exists()) {
+        throw new Error("La suppression du fournisseur n'a pas pu être vérifiée");
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `entities/${id}`);
       throw error;
@@ -204,7 +262,7 @@ export const api = {
   async createUser(user: any): Promise<any> {
     try {
       const payload = cleanPayload({ ...user });
-      await setDoc(doc(db, 'users', user.uid), payload);
+      await withRetry(() => setDoc(doc(db, 'users', user.uid), payload));
       return payload;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'users');
@@ -235,7 +293,7 @@ export const api = {
       if (payload.timestamp instanceof Date) {
         (payload as any).timestamp = payload.timestamp.toISOString();
       }
-      const docRef = await addDoc(collection(db, 'audit_logs'), payload);
+      const docRef = await withRetry(() => addDoc(collection(db, 'audit_logs'), payload));
       return { ...payload, id: docRef.id, timestamp: new Date((payload as any).timestamp) } as AuditLog;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'audit_logs');
@@ -290,7 +348,7 @@ export const api = {
         entities: entities
       };
       
-      const docRef = await addDoc(collection(db, 'backups'), payload);
+      const docRef = await withRetry(() => addDoc(collection(db, 'backups'), payload));
       
       await this.addLog({
         action: 'BACKUP',
@@ -321,14 +379,14 @@ export const api = {
       for (const chunk of txChunks) {
         const batch = writeBatch(db);
         chunk.forEach(t => batch.delete(doc(db, 'transactions', t.id)));
-        await batch.commit();
+        await withRetry(() => batch.commit());
       }
       
       // 2. Delete all current entities
       const currentEntities = await this.getEntities();
       const entBatch = writeBatch(db);
       currentEntities.forEach(e => entBatch.delete(doc(db, 'entities', e.id)));
-      await entBatch.commit();
+      await withRetry(() => entBatch.commit());
       
       // 3. Add transactions from backup
       const backupTxChunks = [];
@@ -343,7 +401,7 @@ export const api = {
           const payload = { ...data, date: data.date.toISOString() };
           batch.set(doc(collection(db, 'transactions')), payload);
         });
-        await batch.commit();
+        await withRetry(() => batch.commit());
       }
       
       // 4. Add entities from backup
@@ -352,7 +410,7 @@ export const api = {
         const { id, ...data } = e;
         entAddBatch.set(doc(collection(db, 'entities')), data);
       });
-      await entAddBatch.commit();
+      await withRetry(() => entAddBatch.commit());
       
       await this.addLog({
         action: 'RESTORATION',

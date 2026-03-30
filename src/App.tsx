@@ -102,8 +102,10 @@ import { api, OperationType } from '@/src/services/api';
 import { Toaster, toast } from 'sonner';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
-import { auth } from './lib/firebase';
+import { auth, db } from './lib/firebase';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword } from 'firebase/auth';
+import { onSnapshot, collection, query, orderBy, limit } from 'firebase/firestore';
+import { useSync, SyncStatusIndicator } from './contexts/SyncContext';
 
 type Period = 'JOUR' | 'SEMAINE' | 'QUINZAINE' | 'MOIS' | 'TRIMESTRE' | 'SEMESTRE' | 'ANNEE' | 'TOUT' | 'CUSTOM';
 
@@ -175,6 +177,36 @@ export default function App() {
       if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
+  };
+
+  const { setStatus, setLastSync, setError, queueOperation, status } = useSync();
+
+  const performWrite = async <T,>(
+    operation: () => Promise<T>,
+    type: 'CREATE' | 'UPDATE' | 'DELETE',
+    collectionName: string,
+    data?: any,
+    docId?: string
+  ): Promise<T | null> => {
+    if (status === 'OFFLINE') {
+      queueOperation({ type, collection: collectionName, data, docId });
+      toast.info("Opération mise en file d'attente (Hors ligne)");
+      return null;
+    }
+
+    setStatus('SYNCING');
+    try {
+      const result = await operation();
+      setStatus('SYNCED');
+      setLastSync(new Date());
+      return result;
+    } catch (err: any) {
+      console.error(`Write error (${type} on ${collectionName}):`, err);
+      setStatus('FAILED');
+      setError(`Erreur lors de l'opération ${type}`);
+      toast.error(`Erreur de synchronisation: ${err.message || 'Échec de l\'opération'}`);
+      throw err;
+    }
   };
 
   // Reset sort when changing tabs
@@ -275,35 +307,98 @@ export default function App() {
 
   useEffect(() => {
     if (isLoggedIn) {
-      const fetchData = async () => {
-        try {
-          // Test Firestore connection
-          await api.testConnection();
-
-          const [txs, ents, auditLogs, bks] = await Promise.all([
-            api.getTransactions(),
-            api.getEntities(),
-            api.getLogs(),
-            api.getBackups()
-          ]);
+      setStatus('SYNCING');
+      
+      // Real-time listeners
+      const unsubTransactions = onSnapshot(
+        query(collection(db, 'transactions'), orderBy('date', 'desc')),
+        (snapshot) => {
+          const txs = snapshot.docs.map(doc => {
+            const data = doc.data();
+            return { ...data, id: doc.id, date: new Date(data.date) } as Transaction;
+          });
           setTransactions(txs);
-          setEntities(ents);
-          setLogs(auditLogs);
-          setBackups(bks);
-          
-          // Check for daily backup
-          await api.checkAndCreateDailyBackup();
-          // Refresh backups list if one was created
-          const updatedBackups = await api.getBackups();
-          setBackups(updatedBackups);
-        } catch (error) {
-          console.error("Erreur lors du chargement des données:", error);
-          toast.error("Erreur lors du chargement des données");
-        } finally {
-          setIsLoading(false);
+          setLastSync(new Date());
+          setStatus('SYNCED');
+        },
+        (error) => {
+          console.error("Error syncing transactions:", error);
+          setStatus('FAILED');
+          setError("Erreur de synchronisation des transactions");
         }
+      );
+
+      const unsubEntities = onSnapshot(
+        query(collection(db, 'entities'), orderBy('name', 'asc')),
+        (snapshot) => {
+          const ents = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Entity));
+          setEntities(ents);
+          setLastSync(new Date());
+          setStatus('SYNCED');
+        },
+        (error) => {
+          console.error("Error syncing entities:", error);
+          setStatus('FAILED');
+          setError("Erreur de synchronisation des fournisseurs");
+        }
+      );
+
+      const unsubLogs = onSnapshot(
+        query(collection(db, 'audit_logs'), orderBy('timestamp', 'desc'), limit(100)),
+        (snapshot) => {
+          const auditLogs = snapshot.docs.map(doc => {
+            const data = doc.data();
+            return { ...data, id: doc.id, timestamp: new Date(data.timestamp) } as AuditLog;
+          });
+          setLogs(auditLogs);
+          setLastSync(new Date());
+          setStatus('SYNCED');
+        },
+        (error) => {
+          console.error("Error syncing logs:", error);
+          setStatus('FAILED');
+          setError("Erreur de synchronisation des logs");
+        }
+      );
+
+      const unsubBackups = onSnapshot(
+        query(collection(db, 'backups'), orderBy('timestamp', 'desc')),
+        (snapshot) => {
+          const bks = snapshot.docs.map(doc => {
+            const data = doc.data();
+            return { 
+              ...data, 
+              id: doc.id, 
+              timestamp: new Date(data.timestamp),
+              transactions: data.transactions.map((t: any) => ({ ...t, date: new Date(t.date) }))
+            } as Backup;
+          });
+          setBackups(bks);
+          setLastSync(new Date());
+          setStatus('SYNCED');
+        },
+        (error) => {
+          console.error("Error syncing backups:", error);
+          setStatus('FAILED');
+          setError("Erreur de synchronisation des sauvegardes");
+        }
+      );
+
+      // Check for daily backup
+      api.checkAndCreateDailyBackup();
+
+      return () => {
+        unsubTransactions();
+        unsubEntities();
+        unsubLogs();
+        unsubBackups();
       };
-      fetchData();
+    }
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      setIsLoading(false);
     }
   }, [isLoggedIn]);
 
@@ -349,11 +444,15 @@ export default function App() {
             beneficiaires: editBeneficiaires ? parseInt(editBeneficiaires) : undefined,
           };
 
-          const updatedTx = await api.updateTransaction(editingTransaction.id, updates);
+          const updatedTx = await performWrite(
+            () => api.updateTransaction(editingTransaction.id, updates),
+            'UPDATE',
+            'transactions',
+            updates,
+            editingTransaction.id
+          );
           
-          setTransactions(prev => prev.map(t => 
-            t.id === editingTransaction.id ? { ...t, ...updatedTx, date: new Date(editDate) } : t
-          ));
+          if (updatedTx) {
 
           addLog(
             'UPDATE', 
@@ -376,9 +475,9 @@ export default function App() {
           setEditDossiers('');
           setEditBeneficiaires('');
           setConfirmDialog(null);
+          }
         } catch (error) {
-          console.error(error);
-          toast.error('Erreur lors de la mise à jour');
+          // Error handled by performWrite
         }
       }
     });
@@ -978,11 +1077,29 @@ export default function App() {
         const supplierTxs = transactions.filter(t => t.entityId === supplier.id);
         const totalCommandes = supplierTxs.filter(t => t.type === 'COMMANDE').reduce((sum, t) => sum + t.amount, 0);
         const totalFactures = supplierTxs.filter(t => t.type === 'FACTURE').reduce((sum, t) => sum + t.amount, 0);
-        const solde = totalCommandes - totalFactures;
-        return { ...supplier, solde, totalCommandes, totalFactures };
+        const totalPaidFactures = supplierTxs.filter(t => t.type === 'FACTURE' && t.paid).reduce((sum, t) => sum + t.amount, 0);
+        const solde = totalCommandes - totalPaidFactures;
+        return { ...supplier, solde, totalCommandes, totalFactures, totalPaidFactures };
       })
       .sort((a, b) => b.solde - a.solde);
   }, [entities, transactions]);
+
+  const togglePaymentStatus = async (transaction: Transaction) => {
+    if (userRole === 'directrice') return;
+    
+    try {
+      await performWrite(
+        () => api.updateTransaction(transaction.id, { paid: !transaction.paid }),
+        'UPDATE',
+        'transactions',
+        { paid: !transaction.paid },
+        transaction.id
+      );
+      toast.success(`Statut de la facture ${transaction.invoiceNumber || ''} mis à jour`);
+    } catch (error) {
+      // Error handled by performWrite
+    }
+  };
 
   // Fournisseurs Pivot Table Data
   const fournisseursPivotData = useMemo(() => {
@@ -1079,6 +1196,26 @@ export default function App() {
       headStyles: { fillStyle: [0, 71, 171] }
     });
 
+    // Recapitulative Suppliers
+    doc.setFontSize(14);
+    doc.text("Récapitulatif par Fournisseur", 14, (doc as any).lastAutoTable.finalY + 15);
+    
+    const supplierRows = sortedSuppliers.map(s => [
+      s.name,
+      formatCurrency(s.totalCommandes),
+      formatCurrency(s.totalFactures),
+      formatCurrency(s.totalPaidFactures),
+      formatCurrency(s.solde)
+    ]);
+
+    doc.autoTable({
+      startY: (doc as any).lastAutoTable.finalY + 20,
+      head: [['Fournisseur', 'Total Commandes', 'Total Factures', 'Factures Payées', 'Solde']],
+      body: supplierRows,
+      theme: 'grid',
+      headStyles: { fillStyle: [16, 185, 129] }
+    });
+
     doc.save(`Rapport_Pharma_${format(new Date(), 'yyyyMMdd')}.pdf`);
     toast.success('Rapport PDF généré avec succès');
   };
@@ -1146,26 +1283,19 @@ export default function App() {
       }));
 
       try {
-        const savedTxs = await api.createTransactions(newTransactions);
-        setTransactions(prev => [...savedTxs, ...prev]);
-        addLog('IMPORT', 'TRANSACTION', 'multiple', `${savedTxs.length} transactions importées via Excel`);
-        toast.success(`${savedTxs.length} transactions importées avec succès`);
-      } catch (err) {
-        console.error("Erreur d'import:", err);
-        let message = "Erreur lors de l'importation";
-        if (err instanceof Error) {
-          try {
-            const info = JSON.parse(err.message);
-            if (info.error.includes('insufficient permissions')) {
-              message = "Permissions insuffisantes pour importer des données.";
-            } else {
-              message = `Erreur: ${info.error}`;
-            }
-          } catch {
-            message = err.message;
-          }
+        const savedTxs = await performWrite(
+          () => api.createTransactions(newTransactions),
+          'CREATE',
+          'transactions',
+          newTransactions
+        );
+        
+        if (savedTxs) {
+          addLog('IMPORT', 'TRANSACTION', 'multiple', `${savedTxs.length} transactions importées via Excel`);
+          toast.success(`${savedTxs.length} transactions importées avec succès`);
         }
-        toast.error(message);
+      } catch (err) {
+        // Error handled by performWrite
       }
     };
     reader.readAsBinaryString(file);
@@ -1307,12 +1437,12 @@ export default function App() {
       ["TOTAL TOUTES VENTES CONFONDU", recettesData.totalGlobal],
       [],
       ["RÉCAPITULATIF PAR FOURNISSEUR"],
-      ["Fournisseur", "Total Commandes", "Total Factures", "Solde"],
+      ["Fournisseur", "Total Commandes", "Total Factures", "Factures Payées", "Solde"],
     ];
 
     // Add Supplier Data
     sortedSuppliers.forEach(s => {
-      consolidatedData.push([s.name, s.totalCommandes, s.totalFactures, s.solde]);
+      consolidatedData.push([s.name, s.totalCommandes, s.totalFactures, s.totalPaidFactures, s.solde]);
     });
 
     consolidatedData.push([], ["CONSOMMATIONS SPÉCIALES"]);
@@ -1407,13 +1537,18 @@ export default function App() {
       requiredString,
       onConfirm: async () => {
         try {
-          await api.deleteTransaction(id);
-          setTransactions(prev => prev.filter(t => t.id !== id));
+          await performWrite(
+            () => api.deleteTransaction(id),
+            'DELETE',
+            'transactions',
+            null,
+            id
+          );
           addLog('DELETE', 'TRANSACTION', id, `Suppression transaction ${id}`, tx);
           toast.success('Transaction supprimée');
           setConfirmDialog(null);
         } catch (error) {
-          toast.error("Erreur lors de la suppression");
+          // Error handled by performWrite
         }
       }
     });
@@ -1430,13 +1565,18 @@ export default function App() {
       requiredString,
       onConfirm: async () => {
         try {
-          await api.deleteEntity(id);
-          setEntities(prev => prev.filter(e => e.id !== id));
+          await performWrite(
+            () => api.deleteEntity(id),
+            'DELETE',
+            'entities',
+            null,
+            id
+          );
           addLog('DELETE', 'ENTITY', id, `Suppression partenaire ${entity?.name}`, entity);
           toast.success('Partenaire supprimé');
           setConfirmDialog(null);
         } catch (error) {
-          toast.error("Erreur lors de la suppression");
+          // Error handled by performWrite
         }
       }
     });
@@ -1446,11 +1586,17 @@ export default function App() {
     setIsBackingUp(true);
     try {
       const name = `Sauvegarde Manuelle - ${format(new Date(), 'dd/MM/yyyy HH:mm')}`;
-      const newBackup = await api.createBackup(name, 'MANUAL');
-      setBackups(prev => [newBackup, ...prev]);
-      toast.success("Sauvegarde créée avec succès");
+      const newBackup = await performWrite(
+        () => api.createBackup(name, 'MANUAL'),
+        'CREATE',
+        'backups'
+      );
+      
+      if (newBackup) {
+        toast.success("Sauvegarde créée avec succès");
+      }
     } catch (error) {
-      toast.error("Erreur lors de la création de la sauvegarde");
+      // Error handled by performWrite
     } finally {
       setIsBackingUp(false);
     }
@@ -1546,15 +1692,23 @@ export default function App() {
           onConfirm: async () => {
             try {
               const updated = { ...editingEntity, name, type, phone, email, address };
-              const saved = await api.saveEntity(updated);
-              setEntities(prev => prev.map(e => e.id === editingEntity.id ? saved : e));
-              addLog('UPDATE', 'ENTITY', updated.id, `Modification ${type.toLowerCase()} ${name}`, editingEntity, updated);
-              toast.success('Partenaire mis à jour');
-              setEditingEntity(null);
-              form.reset();
-              setConfirmDialog(null);
+              const saved = await performWrite(
+                () => api.saveEntity(updated),
+                'UPDATE',
+                'entities',
+                updated,
+                editingEntity.id
+              );
+              
+              if (saved) {
+                addLog('UPDATE', 'ENTITY', updated.id, `Modification ${type.toLowerCase()} ${name}`, editingEntity, updated);
+                toast.success('Partenaire mis à jour');
+                setEditingEntity(null);
+                form.reset();
+                setConfirmDialog(null);
+              }
             } catch (error) {
-              toast.error("Erreur lors de la modification");
+              // Error handled by performWrite
             }
           }
         });
@@ -1567,12 +1721,19 @@ export default function App() {
           address,
           status: 'ACTIF'
         };
-        const saved = await api.saveEntity(newEntity);
-        setEntities(prev => [...prev, saved]);
-        addLog('CREATE', 'ENTITY', saved.id, `Ajout ${type.toLowerCase()} ${name}`, undefined, saved);
-        toast.success('Partenaire ajouté');
-        setEditingEntity(null);
-        form.reset();
+        const saved = await performWrite(
+          () => api.saveEntity(newEntity),
+          'CREATE',
+          'entities',
+          newEntity
+        );
+        
+        if (saved) {
+          addLog('CREATE', 'ENTITY', saved.id, `Ajout ${type.toLowerCase()} ${name}`, undefined, saved);
+          toast.success('Partenaire ajouté');
+          setEditingEntity(null);
+          form.reset();
+        }
       }
     } catch (error) {
       console.error("Erreur détaillée lors de l'enregistrement du partenaire:", error);
@@ -1833,6 +1994,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
+            <SyncStatusIndicator />
             <button
               onClick={() => setDarkMode(!darkMode)}
               className="hidden sm:block p-2.5 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:text-emerald-500 dark:hover:text-emerald-400 transition-all border border-slate-200 dark:border-white/5 shrink-0"
@@ -2358,6 +2520,7 @@ export default function App() {
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Total Commandes</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Total Factures</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Factures Payées</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Solde à payer</th>
                       </tr>
                     </thead>
@@ -2369,12 +2532,13 @@ export default function App() {
                           <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{s.name}</td>
                           <td className="px-6 py-4 text-sm font-mono text-slate-500 dark:text-slate-400 text-right">{formatCurrency(s.totalCommandes)}</td>
                           <td className="px-6 py-4 text-sm font-mono text-slate-500 dark:text-slate-400 text-right">{formatCurrency(s.totalFactures)}</td>
+                          <td className="px-6 py-4 text-sm font-mono text-emerald-500 dark:text-emerald-400 text-right">{formatCurrency(s.totalPaidFactures)}</td>
                           <td className="px-6 py-4 text-sm font-mono text-amber-500 font-bold text-right">{formatCurrency(s.solde)}</td>
                         </tr>
                       ))}
                       {sortedSuppliers.length === 0 && (
                         <tr>
-                          <td colSpan={4} className="px-6 py-8 text-center text-slate-500 text-sm italic">Aucun fournisseur enregistré</td>
+                          <td colSpan={5} className="px-6 py-8 text-center text-slate-500 text-sm italic">Aucun fournisseur enregistré</td>
                         </tr>
                       )}
                     </tbody>
@@ -2536,7 +2700,7 @@ export default function App() {
             <div className="space-y-8">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-white/5 pb-4">
                 <div className="flex gap-4 overflow-x-auto no-scrollbar">
-                  {['GLOBAL', 'COMMANDES', 'FACTURES'].map(tab => (
+                  {['GLOBAL', 'COMMANDES', 'FACTURES', 'SUIVI'].map(tab => (
                     <button
                       key={tab}
                       onClick={() => setSubTab(tab)}
@@ -2545,7 +2709,7 @@ export default function App() {
                         subTab === tab ? "border-emerald-500 text-emerald-500" : "border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-300"
                       )}
                     >
-                      {tab}
+                      {tab === 'SUIVI' ? 'SUIVI DES PAIEMENTS' : tab}
                     </button>
                   ))}
                 </div>
@@ -2553,7 +2717,7 @@ export default function App() {
                 <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
                   <Package size={16} className="text-slate-400" />
                   <select
-                    value={['GLOBAL', 'COMMANDES', 'FACTURES'].includes(subTab) ? '' : subTab}
+                    value={['GLOBAL', 'COMMANDES', 'FACTURES', 'SUIVI'].includes(subTab) ? '' : subTab}
                     onChange={(e) => setSubTab(e.target.value || 'GLOBAL')}
                     className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
                   >
@@ -2565,61 +2729,167 @@ export default function App() {
                 </div>
               </div>
 
-              {subTab === 'GLOBAL' && (
+              {(subTab === 'GLOBAL' || subTab === 'SUIVI') && (
                 <div className="space-y-8">
-                  <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Évolution des Commandes (Global)</h3>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={fournisseursChartData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
-                          <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
-                          <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `${v/1000}k`} />
-                          <Tooltip 
-                            contentStyle={{ 
-                              backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
-                              border: darkMode ? '1px solid #1e293b' : '1px solid #e2e8f0', 
-                              borderRadius: '12px',
-                              color: darkMode ? '#f8fafc' : '#0f172a'
-                            }} 
-                            itemStyle={{ color: darkMode ? '#f8fafc' : '#0f172a' }}
-                          />
-                          <Line type="monotone" dataKey="commandes" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Commandes" />
-                        </LineChart>
-                      </ResponsiveContainer>
+                  {subTab === 'GLOBAL' && (
+                    <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Évolution des Commandes (Global)</h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={fournisseursChartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
+                            <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
+                            <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `${v/1000}k`} />
+                            <Tooltip 
+                              contentStyle={{ 
+                                backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
+                                border: darkMode ? '1px solid #1e293b' : '1px solid #e2e8f0', 
+                                borderRadius: '12px',
+                                color: darkMode ? '#f8fafc' : '#0f172a'
+                              }} 
+                              itemStyle={{ color: darkMode ? '#f8fafc' : '#0f172a' }}
+                            />
+                            <Line type="monotone" dataKey="commandes" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Commandes" />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  {fournisseursPivotData.length > 0 ? (
-                    <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-x-auto transition-colors duration-300">
+                  {subTab === 'GLOBAL' && (
+                    fournisseursPivotData.length > 0 ? (
+                      <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-x-auto transition-colors duration-300">
+                        <table className="w-full text-left">
+                          <thead>
+                            <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
+                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
+                              {Object.keys(fournisseursPivotData[0]).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
+                                <th key={month} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort(month)}>{month} {getSortIcon(month)}</th>
+                              ))}
+                              <th className="px-6 py-4 text-[10px] font-bold text-emerald-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('total')}>Total {getSortIcon('total')}</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200 dark:divide-white/5">
+                            {sortData(fournisseursPivotData).map((row) => (
+                              <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                                <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{row.name}</td>
+                                {Object.keys(row).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
+                                  <td key={month} className="px-6 py-4 text-sm font-mono text-slate-500 dark:text-slate-400">{formatCurrency(row[month])}</td>
+                                ))}
+                                <td className="px-6 py-4 text-sm font-mono font-bold text-emerald-500">{formatCurrency(row.total)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-8 text-center transition-colors duration-300">
+                        <p className="text-slate-500 dark:text-slate-400 text-sm">Aucun fournisseur enregistré ou aucune donnée disponible.</p>
+                      </div>
+                    )
+                  )}
+
+                  {/* SUIVI DES PAIEMENTS SECTION */}
+                  <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
+                    <div className="p-6 border-b border-slate-200 dark:border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white">Suivi des Paiements</h3>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
+                          <Filter size={16} className="text-slate-400" />
+                          <select
+                            value={supplierOrderFilter}
+                            onChange={(e) => setSupplierOrderFilter(e.target.value as any)}
+                            className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                          >
+                            <option value="TOUTES" className="bg-white dark:bg-[#0f172a]">Toutes les factures</option>
+                            <option value="PAYEES" className="bg-white dark:bg-[#0f172a]">Payées</option>
+                            <option value="NON_PAYEES" className="bg-white dark:bg-[#0f172a]">Non Payées</option>
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
+                          <Package size={16} className="text-slate-400" />
+                          <select
+                            value={selectedSupplierFilter}
+                            onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                            className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                          >
+                            <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
+                            {sortedSuppliers.map(s => (
+                              <option key={s.id} value={s.id} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
                       <table className="w-full text-left">
                         <thead>
                           <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">N° Facture</th>
                             <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
-                            {Object.keys(fournisseursPivotData[0]).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
-                              <th key={month} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort(month)}>{month} {getSortIcon(month)}</th>
-                            ))}
-                            <th className="px-6 py-4 text-[10px] font-bold text-emerald-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('total')}>Total {getSortIcon('total')}</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Statut</th>
+                            {userRole !== 'directrice' && (
+                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                            )}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                          {sortData(fournisseursPivotData).map((row) => (
-                            <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
-                              <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{row.name}</td>
-                              {Object.keys(row).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
-                                <td key={month} className="px-6 py-4 text-sm font-mono text-slate-500 dark:text-slate-400">{formatCurrency(row[month])}</td>
-                              ))}
-                              <td className="px-6 py-4 text-sm font-mono font-bold text-emerald-500">{formatCurrency(row.total)}</td>
-                            </tr>
+                          {sortData<Transaction>(filteredTransactions.filter(t => 
+                            t.type === 'FACTURE' && 
+                            (selectedSupplierFilter === '' || t.entityId === selectedSupplierFilter) &&
+                            (supplierOrderFilter === 'TOUTES' || (supplierOrderFilter === 'PAYEES' ? t.paid : !t.paid))
+                          )).map((t) => (
+                          <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                            <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                            <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{t.invoiceNumber || '-'}</td>
+                            <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
+                            <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
+                            <td className="px-6 py-4">
+                              <button
+                                onClick={() => togglePaymentStatus(t)}
+                                disabled={userRole === 'directrice'}
+                                className={cn(
+                                  "flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all",
+                                  t.paid 
+                                    ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20" 
+                                    : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                                )}
+                              >
+                                <div className={cn("w-2 h-2 rounded-full", t.paid ? "bg-emerald-500" : "bg-red-500")} />
+                                {t.paid ? 'Payée' : 'Non Payée'}
+                              </button>
+                            </td>
+                            {userRole !== 'directrice' && (
+                              <td className="px-6 py-4 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button onClick={() => setEditingTransaction(t)} className="p-2 text-slate-400 hover:text-emerald-500 transition-colors">
+                                    <Edit2 size={14} />
+                                  </button>
+                                  <button onClick={() => handleDeleteTransaction(t.id)} className="p-2 text-slate-400 hover:text-red-500 transition-colors">
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              </td>
+                            )}
+                          </tr>
                           ))}
+                          {filteredTransactions.filter(t => 
+                            t.type === 'FACTURE' && 
+                            (selectedSupplierFilter === '' || t.entityId === selectedSupplierFilter) &&
+                            (supplierOrderFilter === 'TOUTES' || (supplierOrderFilter === 'PAYEES' ? t.paid : !t.paid))
+                          ).length === 0 && (
+                            <tr>
+                              <td colSpan={6} className="px-6 py-12 text-center text-slate-500 dark:text-slate-400">
+                                Aucune facture trouvée.
+                              </td>
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>
-                  ) : (
-                    <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-8 text-center transition-colors duration-300">
-                      <p className="text-slate-500 dark:text-slate-400 text-sm">Aucun fournisseur enregistré ou aucune donnée disponible.</p>
-                    </div>
-                  )}
+                  </div>
                 </div>
               )}
 
@@ -2931,7 +3201,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                        {sortData(filteredTransactions.filter(t => 
+                        {sortData<Transaction>(filteredTransactions.filter(t => 
                           t.type === 'FACTURE' && 
                           (selectedSupplierFilter === '' || t.entityId === selectedSupplierFilter) &&
                           (supplierOrderFilter === 'TOUTES' || (supplierOrderFilter === 'PAYEES' ? t.paid : !t.paid))
@@ -2942,12 +3212,19 @@ export default function App() {
                           <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
                           <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
                           <td className="px-6 py-4">
-                            <span className={cn(
-                              "px-2 py-1 rounded-md text-[9px] font-bold uppercase",
-                              t.paid ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"
-                            )}>
-                              {t.paid ? 'PAYÉE' : 'NON PAYÉE'}
-                            </span>
+                            <button
+                              onClick={() => togglePaymentStatus(t)}
+                              disabled={userRole === 'directrice'}
+                              className={cn(
+                                "flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all",
+                                t.paid 
+                                  ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20" 
+                                  : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                              )}
+                            >
+                              <div className={cn("w-2 h-2 rounded-full", t.paid ? "bg-emerald-500" : "bg-red-500")} />
+                              {t.paid ? 'Payée' : 'Non Payée'}
+                            </button>
                           </td>
                           {userRole !== 'directrice' && (
                             <td className="px-6 py-4 text-right">
@@ -3400,10 +3677,12 @@ export default function App() {
                             'TOTALE_REMISE',
                             'TOTALE_TOUTES_VENTES_CONFONDU'
                           ];
-                          const promises = types.map(async (type) => {
+                          
+                          const newTxs: Partial<Transaction>[] = [];
+                          types.forEach(type => {
                             const amount = Number(formData.get(type));
                             if (amount > 0) {
-                              return api.createTransaction({
+                              newTxs.push({
                                 date,
                                 type: type as TransactionType,
                                 amount,
@@ -3411,16 +3690,22 @@ export default function App() {
                                 description: desc || `Saisie journalière ${type.replace(/_/g, ' ')}`,
                               });
                             }
-                            return null;
                           });
 
-                          const results = (await Promise.all(promises)).filter(r => r !== null) as Transaction[];
-                          if (results.length > 0) {
-                            setTransactions(prev => [...results, ...prev]);
-                            results.forEach(tx => {
-                              addLog('CREATE', 'TRANSACTION', tx.id, `Saisie journalière: ${tx.type} - ${formatCurrency(tx.amount)}`, undefined, tx);
-                            });
-                            toast.success('Recettes journalières enregistrées');
+                          if (newTxs.length > 0) {
+                            const results = await performWrite(
+                              () => api.createTransactions(newTxs),
+                              'CREATE',
+                              'transactions',
+                              newTxs
+                            );
+                            
+                            if (results) {
+                              results.forEach(tx => {
+                                addLog('CREATE', 'TRANSACTION', tx.id, `Saisie journalière: ${tx.type} - ${formatCurrency(tx.amount)}`, undefined, tx);
+                              });
+                              toast.success('Recettes journalières enregistrées');
+                            }
                           }
                         } else {
                           const type = (saisieSection === 'PEREMPTIONS' ? 'PEREMPTION_AVARIE' : formData.get('type')) as TransactionType;
@@ -3440,7 +3725,7 @@ export default function App() {
                             delivered = formData.get('delivered') === 'on';
                           }
 
-                          const newTx = await api.createTransaction({
+                          const txData = {
                             date,
                             type,
                             amount,
@@ -3453,33 +3738,26 @@ export default function App() {
                             invoiceNumber,
                             paid,
                             delivered
-                          });
+                          };
 
-                          setTransactions(prev => [newTx, ...prev]);
-                          addLog('CREATE', 'TRANSACTION', newTx.id, `Saisie manuelle: ${type} - ${formatCurrency(amount)}`, undefined, newTx);
-                          toast.success('Donnée enregistrée');
+                          const newTx = await performWrite(
+                            () => api.createTransaction(txData),
+                            'CREATE',
+                            'transactions',
+                            txData
+                          );
+
+                          if (newTx) {
+                            addLog('CREATE', 'TRANSACTION', newTx.id, `Saisie manuelle: ${type} - ${formatCurrency(amount)}`, undefined, newTx);
+                            toast.success('Donnée enregistrée');
+                          }
                         }
                         
                         // Reset form but keep the date
                         const form = e.target as HTMLFormElement;
                         form.reset();
-                        // The date input is controlled by state now, so we don't need to reset it manually.
                       } catch (error) {
-                        console.error("Erreur détaillée lors de l'enregistrement:", error);
-                        let message = "Erreur lors de l'enregistrement";
-                        if (error instanceof Error) {
-                          try {
-                            const info = JSON.parse(error.message);
-                            if (info.error.includes('insufficient permissions')) {
-                              message = "Permissions insuffisantes pour cette action.";
-                            } else {
-                              message = `Erreur: ${info.error}`;
-                            }
-                          } catch {
-                            message = error.message;
-                          }
-                        }
-                        toast.error(message);
+                        // Error handled by performWrite
                       }
                     }}>
                       {/* Date Input for Backdating */}
