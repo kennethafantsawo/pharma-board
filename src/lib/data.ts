@@ -33,10 +33,13 @@ export interface Transaction {
   category: string;
   description: string;
   entityId?: string; // Fournisseur or Assurance ID
-  status?: 'PAYÉE' | 'EN_ATTENTE' | 'REMBOURSÉ' | 'LIVRÉ';
+  status?: 'PAYÉE' | 'EN_ATTENTE' | 'REMBOURSÉ' | 'LIVRÉ' | 'PAYÉ_ET_LIVRÉ';
   reason?: string; // For rejets/retours
   dossiers?: number; // For DCSSA
   beneficiaires?: number; // For Assurances
+  invoiceNumber?: string; // For Fournisseurs
+  paid?: boolean; // For Fournisseurs
+  delivered?: boolean; // For Fournisseurs
 }
 
 export type EntityType = 'FOURNISSEUR' | 'ASSURANCE';
@@ -126,8 +129,9 @@ const generateSimulationData = (): Transaction[] => {
     // 2. FOURNISSEURS (Weekly orders)
     if (day.getDay() === 1 || day.getDay() === 4) {
       const f = INITIAL_ENTITIES.filter(e => e.type === 'FOURNISSEUR')[rand(0, 2)];
-      transactions.push({ id: `cmd-${f.id}-${day.getTime()}`, date: day, type: 'COMMANDE', amount: rand(500000, 1500000), category: 'Approvisionnement', description: `Commande ${f.name}`, entityId: f.id, status: 'LIVRÉ' });
-      transactions.push({ id: `fac-${f.id}-${day.getTime()}`, date: day, type: 'FACTURE', amount: rand(500000, 1500000), category: 'Comptabilité', description: `Facture ${f.name}`, entityId: f.id, status: Math.random() > 0.3 ? 'PAYÉE' : 'EN_ATTENTE' });
+      const isPaid = Math.random() > 0.3;
+      transactions.push({ id: `cmd-${f.id}-${day.getTime()}`, date: day, type: 'COMMANDE', amount: rand(500000, 1500000), category: 'Approvisionnement', description: `Commande ${f.name}`, entityId: f.id, paid: isPaid, delivered: true, invoiceNumber: `INV-${rand(1000, 9999)}` });
+      transactions.push({ id: `fac-${f.id}-${day.getTime()}`, date: day, type: 'FACTURE', amount: rand(500000, 1500000), category: 'Comptabilité', description: `Facture ${f.name}`, entityId: f.id, paid: isPaid, delivered: true, invoiceNumber: `INV-${rand(1000, 9999)}` });
     }
 
     // 3. DCSSA (Twice a month)

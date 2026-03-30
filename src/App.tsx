@@ -133,6 +133,7 @@ export default function App() {
   const [subTab, setSubTab] = useState<string>('');
   const [expandedSupplierId, setExpandedSupplierId] = useState<string | null>(null);
   const [selectedSupplierFilter, setSelectedSupplierFilter] = useState<string>('');
+  const [supplierOrderFilter, setSupplierOrderFilter] = useState<'TOUTES' | 'PAYEES' | 'NON_PAYEES'>('TOUTES');
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
 
   const handleSort = (key: string) => {
@@ -233,6 +234,7 @@ export default function App() {
   const [saisieTypeFilter, setSaisieTypeFilter] = useState<string>('TOUS');
   const [saisieStartDate, setSaisieStartDate] = useState<string>('');
   const [saisieEndDate, setSaisieEndDate] = useState<string>('');
+  const [saisieDate, setSaisieDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -2327,12 +2329,12 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Section Implants sur Accueil */}
+              {/* Section Récapitulatif par Fournisseur sur Accueil */}
               <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
                 <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">Dernières Consommations d'Implants</h3>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">Récapitulatif par Fournisseur</h3>
                   <button 
-                    onClick={() => setActiveTab('implants')}
+                    onClick={() => setActiveTab('fournisseurs')}
                     className="text-xs text-emerald-500 hover:text-emerald-400 font-bold uppercase tracking-wider transition-colors"
                   >
                     Voir tout
@@ -2342,24 +2344,35 @@ export default function App() {
                   <table className="w-full text-left">
                     <thead>
                       <tr className="bg-slate-50 dark:bg-white/2">
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('description')}>Description {getSortIcon('description')}</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Total Commandes</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Total Factures</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Solde à payer</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                      {sortData(transactions.filter(t => t.type === 'CONSOMMATION_IMPLANT'))
+                      {entities
+                        .filter(e => e.type === 'FOURNISSEUR')
+                        .map(supplier => {
+                          const supplierTxs = transactions.filter(t => t.entityId === supplier.id);
+                          const totalCommandes = supplierTxs.filter(t => t.type === 'COMMANDE').reduce((sum, t) => sum + t.amount, 0);
+                          const totalFactures = supplierTxs.filter(t => t.type === 'FACTURE').reduce((sum, t) => sum + t.amount, 0);
+                          const solde = totalCommandes - totalFactures;
+                          return { id: supplier.id, name: supplier.name, totalCommandes, totalFactures, solde };
+                        })
+                        .sort((a, b) => b.solde - a.solde)
                         .slice(0, 5)
-                        .map((t) => (
-                        <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
-                          <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
-                          <td className="px-6 py-4 text-sm text-slate-900 dark:text-white">{t.description}</td>
-                          <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold text-right">{formatCurrency(t.amount)}</td>
+                        .map((s) => (
+                        <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                          <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{s.name}</td>
+                          <td className="px-6 py-4 text-sm font-mono text-slate-500 dark:text-slate-400 text-right">{formatCurrency(s.totalCommandes)}</td>
+                          <td className="px-6 py-4 text-sm font-mono text-slate-500 dark:text-slate-400 text-right">{formatCurrency(s.totalFactures)}</td>
+                          <td className="px-6 py-4 text-sm font-mono text-amber-500 font-bold text-right">{formatCurrency(s.solde)}</td>
                         </tr>
                       ))}
-                      {transactions.filter(t => t.type === 'CONSOMMATION_IMPLANT').length === 0 && (
+                      {entities.filter(e => e.type === 'FOURNISSEUR').length === 0 && (
                         <tr>
-                          <td colSpan={3} className="px-6 py-8 text-center text-slate-500 text-sm italic">Aucune transaction d'implant enregistrée</td>
+                          <td colSpan={4} className="px-6 py-8 text-center text-slate-500 text-sm italic">Aucun fournisseur enregistré</td>
                         </tr>
                       )}
                     </tbody>
@@ -2612,23 +2625,40 @@ export default function App() {
                 <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
                   <div className="p-6 border-b border-slate-200 dark:border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <h3 className="text-lg font-bold text-slate-900 dark:text-white">Toutes les Commandes par Fournisseur</h3>
-                    <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
-                      <Package size={16} className="text-slate-400" />
-                      <select
-                        value={selectedSupplierFilter}
-                        onChange={(e) => setSelectedSupplierFilter(e.target.value)}
-                        className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
-                      >
-                        <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
-                        {entities.filter(e => e.type === 'FOURNISSEUR').map(s => (
-                          <option key={s.id} value={s.id} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
-                        ))}
-                      </select>
+                    <div className="flex flex-col sm:flex-row items-center gap-4">
+                      <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
+                        <Package size={16} className="text-slate-400" />
+                        <select
+                          value={selectedSupplierFilter}
+                          onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                          className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                        >
+                          <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
+                          {entities.filter(e => e.type === 'FOURNISSEUR').map(s => (
+                            <option key={s.id} value={s.id} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
+                        <select
+                          value={supplierOrderFilter}
+                          onChange={(e) => setSupplierOrderFilter(e.target.value as 'TOUTES' | 'PAYEES' | 'NON_PAYEES')}
+                          className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                        >
+                          <option value="TOUTES" className="bg-white dark:bg-[#0f172a]">Toutes les commandes</option>
+                          <option value="PAYEES" className="bg-white dark:bg-[#0f172a]">Commandes payées</option>
+                          <option value="NON_PAYEES" className="bg-white dark:bg-[#0f172a]">Commandes non payées</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
                   <div className="divide-y divide-slate-200 dark:divide-white/5">
                     {entities.filter(e => e.type === 'FOURNISSEUR' && (selectedSupplierFilter === '' || e.id === selectedSupplierFilter)).map(supplier => {
-                      const supplierTransactions = filteredTransactions.filter(t => t.entityId === supplier.id && t.type === 'COMMANDE').sort((a, b) => b.date.getTime() - a.date.getTime());
+                      const supplierTransactions = filteredTransactions.filter(t => 
+                        t.entityId === supplier.id && 
+                        t.type === 'COMMANDE' &&
+                        (supplierOrderFilter === 'TOUTES' || (supplierOrderFilter === 'PAYEES' ? t.paid : !t.paid))
+                      ).sort((a, b) => b.date.getTime() - a.date.getTime());
                       if (supplierTransactions.length === 0) return null;
                       
                       const totalAmount = supplierTransactions.reduce((sum, t) => sum + t.amount, 0);
@@ -2661,8 +2691,10 @@ export default function App() {
                                   <thead>
                                     <tr className="border-b border-slate-200 dark:border-white/5">
                                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">N° Facture</th>
                                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
                                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
+                                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Statut</th>
                                       {userRole !== 'directrice' && (
                                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                                       )}
@@ -2672,8 +2704,17 @@ export default function App() {
                                     {supplierTransactions.map((t) => (
                                       <tr key={t.id} className="hover:bg-white dark:hover:bg-white/5 transition-colors">
                                         <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                                        <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{t.invoiceNumber || '-'}</td>
                                         <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
                                         <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.description}</td>
+                                        <td className="px-6 py-4">
+                                          <span className={cn(
+                                            "px-2 py-1 rounded-md text-[9px] font-bold uppercase",
+                                            t.paid ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"
+                                          )}>
+                                            {t.paid ? 'PAYÉE' : 'NON PAYÉE'}
+                                          </span>
+                                        </td>
                                         {userRole !== 'directrice' && (
                                           <td className="px-6 py-4 text-right">
                                             <div className="flex items-center justify-end gap-2">
@@ -2845,18 +2886,32 @@ export default function App() {
                 <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
                   <div className="p-6 border-b border-slate-200 dark:border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <h3 className="text-lg font-bold text-slate-900 dark:text-white">Toutes les Factures</h3>
-                    <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
-                      <Package size={16} className="text-slate-400" />
-                      <select
-                        value={selectedSupplierFilter}
-                        onChange={(e) => setSelectedSupplierFilter(e.target.value)}
-                        className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
-                      >
-                        <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
-                        {entities.filter(e => e.type === 'FOURNISSEUR').map(s => (
-                          <option key={s.id} value={s.id} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
-                        ))}
-                      </select>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
+                        <Filter size={16} className="text-slate-400" />
+                        <select
+                          value={supplierOrderFilter}
+                          onChange={(e) => setSupplierOrderFilter(e.target.value as any)}
+                          className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                        >
+                          <option value="TOUTES" className="bg-white dark:bg-[#0f172a]">Toutes les factures</option>
+                          <option value="PAYEES" className="bg-white dark:bg-[#0f172a]">Payées</option>
+                          <option value="NON_PAYEES" className="bg-white dark:bg-[#0f172a]">Non Payées</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
+                        <Package size={16} className="text-slate-400" />
+                        <select
+                          value={selectedSupplierFilter}
+                          onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                          className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                        >
+                          <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
+                          {entities.filter(e => e.type === 'FOURNISSEUR').map(s => (
+                            <option key={s.id} value={s.id} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   </div>
                   <div className="overflow-x-auto">
@@ -2864,6 +2919,7 @@ export default function App() {
                       <thead>
                         <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('entityId')}>Fournisseur {getSortIcon('entityId')}</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('invoiceNumber')}>N° Facture {getSortIcon('invoiceNumber')}</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('status')}>Statut {getSortIcon('status')}</th>
@@ -2873,17 +2929,22 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                        {sortData(filteredTransactions.filter(t => t.type === 'FACTURE' && (selectedSupplierFilter === '' || t.entityId === selectedSupplierFilter))).map((t) => (
+                        {sortData(filteredTransactions.filter(t => 
+                          t.type === 'FACTURE' && 
+                          (selectedSupplierFilter === '' || t.entityId === selectedSupplierFilter) &&
+                          (supplierOrderFilter === 'TOUTES' || (supplierOrderFilter === 'PAYEES' ? t.paid : !t.paid))
+                        )).map((t) => (
                         <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                           <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
+                          <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{t.invoiceNumber || '-'}</td>
                           <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
                           <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
                           <td className="px-6 py-4">
                             <span className={cn(
                               "px-2 py-1 rounded-md text-[9px] font-bold uppercase",
-                              t.status === 'PAYÉE' ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"
+                              t.paid ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"
                             )}>
-                              {t.status}
+                              {t.paid ? 'PAYÉE' : 'NON PAYÉE'}
                             </span>
                           </td>
                           {userRole !== 'directrice' && (
@@ -2960,6 +3021,7 @@ export default function App() {
                   <thead>
                     <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('description')}>Description {getSortIcon('description')}</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
                       {userRole !== 'directrice' && (
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
@@ -2973,6 +3035,7 @@ export default function App() {
                       .map((t) => (
                       <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                         <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                        <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.description}</td>
                         <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
                         {userRole !== 'directrice' && (
                           <td className="px-6 py-4 text-right">
@@ -3361,29 +3424,44 @@ export default function App() {
                           const type = (saisieSection === 'PEREMPTIONS' ? 'PEREMPTION_AVARIE' : formData.get('type')) as TransactionType;
                           const amount = Number(formData.get('amount'));
                           const entityId = formData.get('entityId') as string;
-                          const status = formData.get('status') as any;
                           const dossiers = formData.get('dossiers') ? Number(formData.get('dossiers')) : undefined;
                           const beneficiaires = formData.get('beneficiaires') ? Number(formData.get('beneficiaires')) : undefined;
                           const reason = formData.get('reason') as string;
+                          
+                          let invoiceNumber: string | undefined;
+                          let paid: boolean | undefined;
+                          let delivered: boolean | undefined;
+                          
+                          if (saisieSection === 'FOURNISSEURS') {
+                            invoiceNumber = formData.get('invoiceNumber') as string;
+                            paid = formData.get('paid') === 'on';
+                            delivered = formData.get('delivered') === 'on';
+                          }
 
                           const newTx = await api.createTransaction({
                             date,
                             type,
                             amount,
                             category: saisieSection === 'PEREMPTIONS' ? 'Pertes' : 'Saisie Manuelle',
-                            description: desc,
+                            description: desc || type.replace(/_/g, ' '),
                             entityId: entityId || undefined,
-                            status: status || undefined,
                             dossiers,
                             beneficiaires,
-                            reason: reason || undefined
+                            reason: reason || undefined,
+                            invoiceNumber,
+                            paid,
+                            delivered
                           });
 
                           setTransactions(prev => [newTx, ...prev]);
                           addLog('CREATE', 'TRANSACTION', newTx.id, `Saisie manuelle: ${type} - ${formatCurrency(amount)}`, undefined, newTx);
                           toast.success('Donnée enregistrée');
                         }
-                        (e.target as HTMLFormElement).reset();
+                        
+                        // Reset form but keep the date
+                        const form = e.target as HTMLFormElement;
+                        form.reset();
+                        // The date input is controlled by state now, so we don't need to reset it manually.
                       } catch (error) {
                         console.error("Erreur détaillée lors de l'enregistrement:", error);
                         let message = "Erreur lors de l'enregistrement";
@@ -3408,11 +3486,12 @@ export default function App() {
                         <input 
                           name="date" 
                           type="date" 
-                          defaultValue={new Date().toISOString().split('T')[0]}
+                          value={saisieDate}
+                          onChange={(e) => setSaisieDate(e.target.value)}
                           required 
                           className="w-full bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300" 
                         />
-                        <p className="text-xs text-slate-500 mt-2">Modifiez cette date pour antidater une saisie.</p>
+                        <p className="text-xs text-slate-500 mt-2">Modifiez cette date pour antidater une saisie. La date est conservée après chaque saisie.</p>
                       </div>
 
                       {/* Form Fields based on Section */}
@@ -3494,12 +3573,24 @@ export default function App() {
                             </select>
                           </div>
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Statut</label>
-                            <select name="status" className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
-                              <option value="EN_ATTENTE">En attente</option>
-                              <option value="PAYÉE">Payée</option>
-                              <option value="LIVRÉ">Livré</option>
-                            </select>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Numéro de Facture</label>
+                            <input 
+                              type="text" 
+                              name="invoiceNumber" 
+                              required 
+                              placeholder="Ex: FAC-2026-001"
+                              className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300"
+                            />
+                          </div>
+                          <div className="flex gap-4 items-center mt-2">
+                            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+                              <input type="checkbox" name="paid" className="rounded border-slate-300 text-emerald-500 focus:ring-emerald-500" />
+                              Payée
+                            </label>
+                            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+                              <input type="checkbox" name="delivered" className="rounded border-slate-300 text-emerald-500 focus:ring-emerald-500" />
+                              Livrée
+                            </label>
                           </div>
                         </>
                       )}
@@ -3670,8 +3761,8 @@ export default function App() {
                       <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                         {[...transactions]
                           .filter(t => {
-                            const matchesSearch = t.description.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                                               t.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            const matchesSearch = (t.description?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || 
+                                               (t.type?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
                                                (t.entityId && entities.find(e => e.id === t.entityId)?.name.toLowerCase().includes(searchQuery.toLowerCase()));
                             const matchesType = saisieTypeFilter === 'TOUS' || t.type === saisieTypeFilter;
                             
