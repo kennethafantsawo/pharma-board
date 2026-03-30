@@ -970,9 +970,23 @@ export default function App() {
     }));
   }, [recettesChartData]);
 
+  // Sorted Suppliers by Balance
+  const sortedSuppliers = useMemo(() => {
+    return entities
+      .filter(e => e.type === 'FOURNISSEUR')
+      .map(supplier => {
+        const supplierTxs = transactions.filter(t => t.entityId === supplier.id);
+        const totalCommandes = supplierTxs.filter(t => t.type === 'COMMANDE').reduce((sum, t) => sum + t.amount, 0);
+        const totalFactures = supplierTxs.filter(t => t.type === 'FACTURE').reduce((sum, t) => sum + t.amount, 0);
+        const solde = totalCommandes - totalFactures;
+        return { ...supplier, solde, totalCommandes, totalFactures };
+      })
+      .sort((a, b) => b.solde - a.solde);
+  }, [entities, transactions]);
+
   // Fournisseurs Pivot Table Data
   const fournisseursPivotData = useMemo(() => {
-    const suppliers = entities.filter(e => e.type === 'FOURNISSEUR');
+    const suppliers = sortedSuppliers;
     
     // Use the same periods as the chart
     const periods = recettesChartData.map((d, index) => {
@@ -1001,7 +1015,7 @@ export default function App() {
       row.total = total;
       return row;
     });
-  }, [entities, filteredTransactions, recettesChartData]);
+  }, [sortedSuppliers, filteredTransactions, recettesChartData]);
 
   const supplierSpecificChartData = useMemo(() => {
     const supplier = entities.find(e => e.name === subTab);
@@ -1297,11 +1311,8 @@ export default function App() {
     ];
 
     // Add Supplier Data
-    entities.filter(e => e.type === 'FOURNISSEUR').forEach(s => {
-      const sTxs = transactions.filter(t => t.entityId === s.id);
-      const cmds = sTxs.filter(t => t.type === 'COMMANDE').reduce((sum, t) => sum + t.amount, 0);
-      const facts = sTxs.filter(t => t.type === 'FACTURE').reduce((sum, t) => sum + t.amount, 0);
-      consolidatedData.push([s.name, cmds, facts, cmds - facts]);
+    sortedSuppliers.forEach(s => {
+      consolidatedData.push([s.name, s.totalCommandes, s.totalFactures, s.solde]);
     });
 
     consolidatedData.push([], ["CONSOMMATIONS SPÉCIALES"]);
@@ -2351,16 +2362,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                      {entities
-                        .filter(e => e.type === 'FOURNISSEUR')
-                        .map(supplier => {
-                          const supplierTxs = transactions.filter(t => t.entityId === supplier.id);
-                          const totalCommandes = supplierTxs.filter(t => t.type === 'COMMANDE').reduce((sum, t) => sum + t.amount, 0);
-                          const totalFactures = supplierTxs.filter(t => t.type === 'FACTURE').reduce((sum, t) => sum + t.amount, 0);
-                          const solde = totalCommandes - totalFactures;
-                          return { id: supplier.id, name: supplier.name, totalCommandes, totalFactures, solde };
-                        })
-                        .sort((a, b) => b.solde - a.solde)
+                      {sortedSuppliers
                         .slice(0, 5)
                         .map((s) => (
                         <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
@@ -2370,7 +2372,7 @@ export default function App() {
                           <td className="px-6 py-4 text-sm font-mono text-amber-500 font-bold text-right">{formatCurrency(s.solde)}</td>
                         </tr>
                       ))}
-                      {entities.filter(e => e.type === 'FOURNISSEUR').length === 0 && (
+                      {sortedSuppliers.length === 0 && (
                         <tr>
                           <td colSpan={4} className="px-6 py-8 text-center text-slate-500 text-sm italic">Aucun fournisseur enregistré</td>
                         </tr>
@@ -2556,7 +2558,7 @@ export default function App() {
                     className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
                   >
                     <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
-                    {entities.filter(e => e.type === 'FOURNISSEUR').map(s => (
+                    {sortedSuppliers.map(s => (
                       <option key={s.id} value={s.name} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
                     ))}
                   </select>
@@ -2593,7 +2595,7 @@ export default function App() {
                       <table className="w-full text-left">
                         <thead>
                           <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('name')}>Fournisseur {getSortIcon('name')}</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
                             {Object.keys(fournisseursPivotData[0]).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
                               <th key={month} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort(month)}>{month} {getSortIcon(month)}</th>
                             ))}
@@ -2634,7 +2636,7 @@ export default function App() {
                           className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
                         >
                           <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
-                          {entities.filter(e => e.type === 'FOURNISSEUR').map(s => (
+                          {sortedSuppliers.map(s => (
                             <option key={s.id} value={s.id} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
                           ))}
                         </select>
@@ -2653,7 +2655,7 @@ export default function App() {
                     </div>
                   </div>
                   <div className="divide-y divide-slate-200 dark:divide-white/5">
-                    {entities.filter(e => e.type === 'FOURNISSEUR' && (selectedSupplierFilter === '' || e.id === selectedSupplierFilter)).map(supplier => {
+                    {sortedSuppliers.filter(e => selectedSupplierFilter === '' || e.id === selectedSupplierFilter).map(supplier => {
                       const supplierTransactions = filteredTransactions.filter(t => 
                         t.entityId === supplier.id && 
                         t.type === 'COMMANDE' &&
@@ -2743,7 +2745,7 @@ export default function App() {
                         </div>
                       );
                     })}
-                    {entities.filter(e => e.type === 'FOURNISSEUR').every(supplier => filteredTransactions.filter(t => t.entityId === supplier.id && t.type === 'COMMANDE').length === 0) && (
+                    {sortedSuppliers.every(supplier => filteredTransactions.filter(t => t.entityId === supplier.id && t.type === 'COMMANDE').length === 0) && (
                       <div className="p-8 text-center text-slate-500 dark:text-slate-400">
                         Aucune commande trouvée pour la période sélectionnée.
                       </div>
@@ -2907,7 +2909,7 @@ export default function App() {
                           className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
                         >
                           <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
-                          {entities.filter(e => e.type === 'FOURNISSEUR').map(s => (
+                          {sortedSuppliers.map(s => (
                             <option key={s.id} value={s.id} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
                           ))}
                         </select>
@@ -2918,7 +2920,7 @@ export default function App() {
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('entityId')}>Fournisseur {getSortIcon('entityId')}</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('invoiceNumber')}>N° Facture {getSortIcon('invoiceNumber')}</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
@@ -3567,7 +3569,7 @@ export default function App() {
                             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Fournisseur</label>
                             <select name="entityId" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
                               <option value="">Sélectionner...</option>
-                              {entities.filter(e => e.type === 'FOURNISSEUR').map(e => (
+                              {sortedSuppliers.map(e => (
                                 <option key={e.id} value={e.id}>{e.name}</option>
                               ))}
                             </select>
