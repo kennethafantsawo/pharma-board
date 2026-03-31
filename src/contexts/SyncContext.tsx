@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Check, RotateCw, X, Radio } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { api } from '../services/api';
 
 export type SyncStatus = 'SYNCED' | 'SYNCING' | 'FAILED' | 'OFFLINE';
 
@@ -13,6 +14,8 @@ interface QueuedOperation {
   timestamp: number;
 }
 
+const QUEUE_STORAGE_KEY = 'offline_sync_queue';
+
 interface SyncContextType {
   status: SyncStatus;
   setStatus: (status: SyncStatus) => void;
@@ -22,6 +25,7 @@ interface SyncContextType {
   setError: (error: string | null) => void;
   queueOperation: (op: Omit<QueuedOperation, 'id' | 'timestamp'>) => void;
   pendingOperations: QueuedOperation[];
+  processQueue: () => Promise<void>;
 }
 
 const SyncContext = createContext<SyncContextType | undefined>(undefined);
@@ -38,7 +42,69 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [status, setStatus] = useState<SyncStatus>('SYNCED');
   const [lastSync, setLastSync] = useState<Date | null>(new Date());
   const [error, setError] = useState<string | null>(null);
-  const [pendingOperations, setPendingOperations] = useState<QueuedOperation[]>([]);
+  const [pendingOperations, setPendingOperations] = useState<QueuedOperation[]>(() => {
+    const saved = localStorage.getItem(QUEUE_STORAGE_KEY);
+    return saved ? JSON.parse(saved) : [];
+  });
+  const pendingOpsRef = React.useRef(pendingOperations);
+  const isProcessingRef = React.useRef(false);
+
+  useEffect(() => {
+    pendingOpsRef.current = pendingOperations;
+    localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(pendingOperations));
+  }, [pendingOperations]);
+
+  const processQueue = useCallback(async () => {
+    const opsToProcess = pendingOpsRef.current;
+    if (opsToProcess.length === 0 || !navigator.onLine || isProcessingRef.current) return;
+    
+    isProcessingRef.current = true;
+    setStatus('SYNCING');
+    
+    let successCount = 0;
+    const failedOps: QueuedOperation[] = [];
+
+    for (const op of opsToProcess) {
+      try {
+        if (op.collection === 'transactions') {
+          if (op.type === 'CREATE') {
+            if (Array.isArray(op.data)) {
+              await api.createTransactions(op.data);
+            } else {
+              await api.createTransaction(op.data);
+            }
+          }
+          else if (op.type === 'UPDATE' && op.docId) await api.updateTransaction(op.docId, op.data);
+          else if (op.type === 'DELETE' && op.docId) await api.deleteTransaction(op.docId);
+        } else if (op.collection === 'entities') {
+          if (op.type === 'CREATE') await api.saveEntity(op.data);
+          else if (op.type === 'UPDATE' && op.docId) await api.saveEntity({ ...op.data, id: op.docId });
+          else if (op.type === 'DELETE' && op.docId) await api.deleteEntity(op.docId);
+        } else if (op.collection === 'audit_logs') {
+          if (op.type === 'CREATE') await api.addLog(op.data);
+        } else if (op.collection === 'backups') {
+          if (op.type === 'CREATE') await api.createBackup(op.data.name, op.data.type);
+        }
+        successCount++;
+      } catch (err) {
+        console.error('Failed to process queued operation:', op, err);
+        failedOps.push(op);
+      }
+    }
+
+    setPendingOperations(failedOps);
+    
+    if (failedOps.length > 0) {
+      setStatus('FAILED');
+      setError(`${failedOps.length} opérations ont échoué lors de la synchronisation.`);
+    } else {
+      setStatus('SYNCED');
+      setLastSync(new Date());
+      setError(null);
+    }
+    
+    isProcessingRef.current = false;
+  }, []);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -52,13 +118,25 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!navigator.onLine) {
       setStatus('OFFLINE');
+    } else {
+      // Use a timeout to avoid immediate execution on every render
+      const timer = setTimeout(() => {
+        if (pendingOpsRef.current.length > 0) {
+          processQueue();
+        }
+      }, 1000);
+      return () => {
+        clearTimeout(timer);
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      };
     }
 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [pendingOperations]);
+  }, [processQueue]);
 
   const queueOperation = (op: Omit<QueuedOperation, 'id' | 'timestamp'>) => {
     const newOp: QueuedOperation = {
@@ -67,27 +145,12 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       timestamp: Date.now()
     };
     setPendingOperations(prev => [...prev, newOp]);
-    if (status === 'OFFLINE') {
-      // Logic to save to localStorage could go here
-    }
-  };
-
-  const processQueue = async () => {
-    if (pendingOperations.length === 0) return;
-    
-    setStatus('SYNCING');
-    // In a real app, we would iterate through pendingOperations and call the API
-    // For this demo, we'll just clear the queue after a short delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    setPendingOperations([]);
-    setStatus('SYNCED');
-    setLastSync(new Date());
   };
 
   return (
     <SyncContext.Provider value={{ 
       status, setStatus, lastSync, setLastSync, error, setError, 
-      queueOperation, pendingOperations 
+      queueOperation, pendingOperations, processQueue 
     }}>
       {children}
     </SyncContext.Provider>
@@ -95,7 +158,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
 };
 
 export const SyncStatusIndicator: React.FC = () => {
-  const { status, error } = useSync();
+  const { status, error, processQueue } = useSync();
 
   const getStatusConfig = () => {
     switch (status) {
@@ -137,14 +200,25 @@ export const SyncStatusIndicator: React.FC = () => {
   const config = getStatusConfig();
 
   return (
-    <div className={cn(
-      "flex items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-bold uppercase tracking-wider transition-all duration-300",
-      config.bgColor,
-      config.borderColor,
-      config.color
-    )}>
-      {config.icon}
-      <span className="hidden sm:inline">{config.text}</span>
+    <div className="flex items-center gap-2">
+      <div className={cn(
+        "flex items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-bold uppercase tracking-wider transition-all duration-300",
+        config.bgColor,
+        config.borderColor,
+        config.color
+      )}>
+        {config.icon}
+        <span className="hidden sm:inline">{config.text}</span>
+      </div>
+      {status === 'FAILED' && (
+        <button 
+          onClick={() => processQueue()}
+          className="p-1.5 rounded-full bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
+          title="Réessayer la synchronisation"
+        >
+          <RotateCw size={14} />
+        </button>
+      )}
     </div>
   );
 };

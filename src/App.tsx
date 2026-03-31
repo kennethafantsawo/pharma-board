@@ -130,6 +130,33 @@ const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
   { value: 'REJET_ASSURANCE', label: 'Rejet Assurance' },
 ];
 
+const generatePeriodOptions = (type: 'quinzaine' | 'mois') => {
+  const options = [];
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+
+  if (type === 'mois') {
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(currentYear, currentMonth - i, 1);
+      const monthName = d.toLocaleString('fr-FR', { month: 'long' });
+      const year = d.getFullYear();
+      const label = `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} ${year}`;
+      options.push({ value: label, label });
+    }
+  } else {
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(currentYear, currentMonth - i, 1);
+      const monthName = d.toLocaleString('fr-FR', { month: 'long' });
+      const year = d.getFullYear();
+      const monthCapitalized = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+      options.push({ value: `Q2 ${monthCapitalized} ${year}`, label: `2ème Quinzaine ${monthCapitalized} ${year}` });
+      options.push({ value: `Q1 ${monthCapitalized} ${year}`, label: `1ère Quinzaine ${monthCapitalized} ${year}` });
+    }
+  }
+  return options;
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('accueil');
   const [subTab, setSubTab] = useState<string>('');
@@ -243,7 +270,7 @@ export default function App() {
   const [passwordModal, setPasswordModal] = useState<{ open: boolean; target: 'saisie' | 'parametres'; onUnlock: () => void } | null>(null);
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
-  const [selectedPeriod, setSelectedPeriod] = useState<Period>('SEMAINE');
+  const [selectedPeriod, setSelectedPeriod] = useState<Period>('TOUT');
   const [dateRange, setDateRange] = useState<{ start: string; end: string } | null>(null);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -791,6 +818,7 @@ export default function App() {
     const consommationDCSSA = categories.CONSOMMATION_DCSSA;
     const consommationImplant = categories.CONSOMMATION_IMPLANT;
     const rejetsAssurance = categories.REJET_ASSURANCE;
+    const montantFacturesReglees = txs.filter(t => t.type === 'FACTURE' && t.paid).reduce((acc, t) => acc + t.amount, 0);
 
     // Logic for totalGlobal (Chiffre d'affaires / Totale Toutes Ventes Confondu)
     // Total Vente = Total Vente Tier Payant + Credit + Total Vente Comptant
@@ -814,7 +842,8 @@ export default function App() {
       peremptionAvarie,
       consommationDCSSA,
       consommationImplant,
-      rejetsAssurance
+      rejetsAssurance,
+      montantFacturesReglees
     };
   };
 
@@ -2410,11 +2439,11 @@ export default function App() {
                   color="amber" 
                 />
                 <KPICard 
-                  label="Rejets Assurance" 
-                  value={formatCurrency(metrics.rejetsAssurance)} 
-                  trend={calculateGrowth(metrics.rejetsAssurance, prevMetrics.rejetsAssurance)} 
-                  icon={<XCircle className="text-red-500" />} 
-                  color="red" 
+                  label="Montant Factures Réglées" 
+                  value={formatCurrency(metrics.montantFacturesReglees)} 
+                  trend={calculateGrowth(metrics.montantFacturesReglees, prevMetrics.montantFacturesReglees)} 
+                  icon={<CheckCircle2 className="text-emerald-500" />} 
+                  color="emerald" 
                 />
               </div>
 
@@ -2700,7 +2729,7 @@ export default function App() {
             <div className="space-y-8">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-white/5 pb-4">
                 <div className="flex gap-4 overflow-x-auto no-scrollbar">
-                  {['GLOBAL', 'COMMANDES', 'FACTURES', 'SUIVI'].map(tab => (
+                  {['GLOBAL', 'COMMANDES / FACTURES', 'FACTURES PAYÉES'].map(tab => (
                     <button
                       key={tab}
                       onClick={() => setSubTab(tab)}
@@ -2709,7 +2738,7 @@ export default function App() {
                         subTab === tab ? "border-emerald-500 text-emerald-500" : "border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-300"
                       )}
                     >
-                      {tab === 'SUIVI' ? 'SUIVI DES PAIEMENTS' : tab}
+                      {tab}
                     </button>
                   ))}
                 </div>
@@ -2717,7 +2746,7 @@ export default function App() {
                 <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
                   <Package size={16} className="text-slate-400" />
                   <select
-                    value={['GLOBAL', 'COMMANDES', 'FACTURES', 'SUIVI'].includes(subTab) ? '' : subTab}
+                    value={['GLOBAL', 'COMMANDES / FACTURES', 'FACTURES PAYÉES'].includes(subTab) ? '' : subTab}
                     onChange={(e) => setSubTab(e.target.value || 'GLOBAL')}
                     className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
                   >
@@ -2893,10 +2922,10 @@ export default function App() {
                 </div>
               )}
 
-              {subTab === 'COMMANDES' && (
+              {subTab === 'COMMANDES / FACTURES' && (
                 <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
                   <div className="p-6 border-b border-slate-200 dark:border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Toutes les Commandes par Fournisseur</h3>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Toutes les Commandes et Factures par Fournisseur</h3>
                     <div className="flex flex-col sm:flex-row items-center gap-4">
                       <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
                         <Package size={16} className="text-slate-400" />
@@ -2928,7 +2957,7 @@ export default function App() {
                     {sortedSuppliers.filter(e => selectedSupplierFilter === '' || e.id === selectedSupplierFilter).map(supplier => {
                       const supplierTransactions = filteredTransactions.filter(t => 
                         t.entityId === supplier.id && 
-                        t.type === 'COMMANDE' &&
+                        (t.type === 'COMMANDE' || t.type === 'FACTURE') &&
                         (supplierOrderFilter === 'TOUTES' || (supplierOrderFilter === 'PAYEES' ? t.paid : !t.paid))
                       ).sort((a, b) => b.date.getTime() - a.date.getTime());
                       if (supplierTransactions.length === 0) return null;
@@ -3015,9 +3044,9 @@ export default function App() {
                         </div>
                       );
                     })}
-                    {sortedSuppliers.every(supplier => filteredTransactions.filter(t => t.entityId === supplier.id && t.type === 'COMMANDE').length === 0) && (
+                    {sortedSuppliers.every(supplier => filteredTransactions.filter(t => t.entityId === supplier.id && (t.type === 'COMMANDE' || t.type === 'FACTURE')).length === 0) && (
                       <div className="p-8 text-center text-slate-500 dark:text-slate-400">
-                        Aucune commande trouvée pour la période sélectionnée.
+                        Aucune commande ou facture trouvée pour la période sélectionnée.
                       </div>
                     )}
                   </div>
@@ -3154,10 +3183,10 @@ export default function App() {
                 </div>
               )}
 
-              {subTab === 'FACTURES' && (
+              {subTab === 'FACTURES PAYÉES' && (
                 <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
                   <div className="p-6 border-b border-slate-200 dark:border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Toutes les Factures</h3>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Factures Payées & Non Payées</h3>
                     <div className="flex flex-wrap items-center gap-2">
                       <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
                         <Filter size={16} className="text-slate-400" />
@@ -3202,7 +3231,7 @@ export default function App() {
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-white/5">
                         {sortData<Transaction>(filteredTransactions.filter(t => 
-                          t.type === 'FACTURE' && 
+                          (t.type === 'COMMANDE' || t.type === 'FACTURE') && 
                           (selectedSupplierFilter === '' || t.entityId === selectedSupplierFilter) &&
                           (supplierOrderFilter === 'TOUTES' || (supplierOrderFilter === 'PAYEES' ? t.paid : !t.paid))
                         )).map((t) => (
@@ -3300,6 +3329,7 @@ export default function App() {
                   <thead>
                     <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('period')}>Période {getSortIcon('period')}</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('description')}>Description {getSortIcon('description')}</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
                       {userRole !== 'directrice' && (
@@ -3314,6 +3344,7 @@ export default function App() {
                       .map((t) => (
                       <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                         <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                        <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{t.period || '-'}</td>
                         <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.description}</td>
                         <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
                         {userRole !== 'directrice' && (
@@ -3356,6 +3387,7 @@ export default function App() {
                   <thead>
                     <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
+                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('period')}>Période {getSortIcon('period')}</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('description')}>Description {getSortIcon('description')}</th>
                       <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
                       {userRole !== 'directrice' && (
@@ -3367,6 +3399,7 @@ export default function App() {
                     {sortData(transactions.filter(t => t.type === 'CONSOMMATION_IMPLANT')).slice(0, 15).map((t) => (
                       <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                         <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                        <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{t.period || '-'}</td>
                         <td className="px-6 py-4 text-sm text-slate-900 dark:text-white">{t.description}</td>
                         <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
                         {userRole !== 'directrice' && (
@@ -3506,6 +3539,7 @@ export default function App() {
                     <thead>
                       <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('entityId')}>Assurance {getSortIcon('entityId')}</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('period')}>Période {getSortIcon('period')}</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('reason')}>Motif {getSortIcon('reason')}</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
                         <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
@@ -3518,6 +3552,7 @@ export default function App() {
                       {sortData(filteredTransactions.filter(t => t.type === 'REJET_ASSURANCE')).slice(0, 15).map((t) => (
                         <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                           <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
+                          <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{t.period || '-'}</td>
                           <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.reason}</td>
                           <td className="px-6 py-4 text-sm text-slate-500">{format(t.date, 'dd/MM/yyyy')}</td>
                           <td className="px-6 py-4 text-sm font-mono text-red-500 font-bold">{formatCurrency(t.amount)}</td>
@@ -3557,6 +3592,7 @@ export default function App() {
                       <thead>
                         <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('period')}>Période {getSortIcon('period')}</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
                           {userRole !== 'directrice' && (
                             <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
@@ -3567,6 +3603,7 @@ export default function App() {
                         {sortData(filteredTransactions.filter(t => t.entityId === entities.find(e => e.name === subTab)?.id && t.type === 'CONSOMMATION_ASSURANCE')).slice(0, 15).map((t) => (
                           <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                             <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                            <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{t.period || '-'}</td>
                             <td className="px-6 py-4 text-sm font-mono text-emerald-500 font-bold">{formatCurrency(t.amount)}</td>
                             {userRole !== 'directrice' && (
                               <td className="px-6 py-4 text-right">
@@ -3714,6 +3751,7 @@ export default function App() {
                           const dossiers = formData.get('dossiers') ? Number(formData.get('dossiers')) : undefined;
                           const beneficiaires = formData.get('beneficiaires') ? Number(formData.get('beneficiaires')) : undefined;
                           const reason = formData.get('reason') as string;
+                          const period = formData.get('period') as string;
                           
                           let invoiceNumber: string | undefined;
                           let paid: boolean | undefined;
@@ -3737,7 +3775,8 @@ export default function App() {
                             reason: reason || undefined,
                             invoiceNumber,
                             paid,
-                            delivered
+                            delivered,
+                            period: period || undefined
                           };
 
                           const newTx = await performWrite(
@@ -3903,6 +3942,17 @@ export default function App() {
                               </select>
                             </div>
                           )}
+                          {(saisieConsommationType === 'CONSOMMATION_ASSURANCE' || saisieConsommationType === 'CONSOMMATION_IMPLANT' || saisieConsommationType === 'CONSOMMATION_DCSSA') && (
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Période</label>
+                              <select name="period" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
+                                <option value="">Sélectionner une période...</option>
+                                {generatePeriodOptions(saisieConsommationType === 'CONSOMMATION_ASSURANCE' ? 'quinzaine' : 'mois').map(opt => (
+                                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                         </>
                       )}
 
@@ -3915,6 +3965,15 @@ export default function App() {
                               <option value="">Sélectionner...</option>
                               {entities.filter(e => e.type === 'ASSURANCE').map(e => (
                                 <option key={e.id} value={e.id}>{e.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Période</label>
+                            <select name="period" required className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 outline-none transition-colors duration-300">
+                              <option value="">Sélectionner une période...</option>
+                              {generatePeriodOptions('quinzaine').map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
                               ))}
                             </select>
                           </div>

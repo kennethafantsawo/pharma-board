@@ -40,6 +40,7 @@ export interface Transaction {
   invoiceNumber?: string; // For Fournisseurs
   paid?: boolean; // For Fournisseurs
   delivered?: boolean; // For Fournisseurs
+  period?: string; // For Saisie par période
 }
 
 export type EntityType = 'FOURNISSEUR' | 'ASSURANCE';
