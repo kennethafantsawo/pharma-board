@@ -33,6 +33,7 @@ import {
   FileText,
   Plus,
   CheckCircle2,
+  ShieldAlert,
   Clock,
   XCircle,
   ChevronDown,
@@ -160,10 +161,48 @@ const generatePeriodOptions = (type: 'quinzaine' | 'mois') => {
 export default function App() {
   const [activeTab, setActiveTab] = useState('accueil');
   const [subTab, setSubTab] = useState<string>('');
+  const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
   const [expandedSupplierId, setExpandedSupplierId] = useState<string | null>(null);
   const [selectedSupplierFilter, setSelectedSupplierFilter] = useState<string>('');
   const [supplierOrderFilter, setSupplierOrderFilter] = useState<'TOUTES' | 'PAYEES' | 'NON_PAYEES'>('TOUTES');
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
+
+  const handleBulkPaymentStatus = async (paid: boolean) => {
+    if (selectedInvoices.length === 0) return;
+    
+    setConfirmDialog({
+      open: true,
+      title: paid ? 'Confirmer le paiement' : 'Confirmer l\'annulation',
+      message: `Voulez-vous marquer ${selectedInvoices.length} facture(s) comme ${paid ? 'payée(s)' : 'non payée(s)'} ?`,
+      onConfirm: async () => {
+        try {
+          const batch = selectedInvoices.map(id => api.updateTransaction(id, { paid }));
+          await Promise.all(batch);
+          
+          await api.addLog({
+            action: 'UPDATE',
+            targetType: 'TRANSACTION',
+            targetId: 'BULK_PAYMENT',
+            details: `Mise à jour groupée de ${selectedInvoices.length} factures (paid: ${paid})`
+          });
+          
+          setSelectedInvoices([]);
+          toast.success(`${selectedInvoices.length} facture(s) mise(s) à jour`);
+          setConfirmDialog(null);
+        } catch (error) {
+          console.error("Erreur lors de la mise à jour groupée:", error);
+          toast.error("Erreur lors de la mise à jour des factures");
+        }
+      }
+    });
+  };
+
+  const getFortnightLabel = (date: Date) => {
+    const day = date.getDate();
+    const month = format(date, 'MMMM yyyy', { locale: fr });
+    const monthCapitalized = month.charAt(0).toUpperCase() + month.slice(1);
+    return day <= 15 ? `1ère Quinzaine ${monthCapitalized}` : `2ème Quinzaine ${monthCapitalized}`;
+  };
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -954,7 +993,8 @@ export default function App() {
           koundjoure: 0,
           total: 0,
           entrees: 0,
-          sorties: 0
+          sorties: 0,
+          rejets: 0
         };
       }
       if (groupingFn === startOfHour) current = addHours(current, 1);
@@ -1023,6 +1063,10 @@ export default function App() {
       }
       if (t.type === 'CONSOMMATION_KOUNDJOURE') {
         groups[key].koundjoure += t.amount;
+      }
+      if (t.type === 'REJET_ASSURANCE') {
+        groups[key].rejets += t.amount;
+        groups[key].sorties += t.amount;
       }
     });
 
@@ -1148,20 +1192,22 @@ export default function App() {
       };
     });
 
-    return suppliers.map(s => {
-      const row: any = { name: s.name, id: s.id };
-      let total = 0;
-      periods.forEach(p => {
-        const amount = filteredTransactions
-          .filter(t => t.entityId === s.id && t.type === 'COMMANDE' && t.date >= p.start && t.date < p.end)
-          .reduce((sum, t) => sum + t.amount, 0);
-        row[p.key] = amount;
-        total += amount;
+    return suppliers
+      .filter(s => selectedSupplierFilter === '' || s.id === selectedSupplierFilter)
+      .map(s => {
+        const row: any = { name: s.name, id: s.id };
+        let total = 0;
+        periods.forEach(p => {
+          const amount = filteredTransactions
+            .filter(t => t.entityId === s.id && (t.type === 'COMMANDE' || t.type === 'FACTURE') && t.date >= p.start && t.date < p.end)
+            .reduce((sum, t) => sum + t.amount, 0);
+          row[p.key] = amount;
+          total += amount;
+        });
+        row.total = total;
+        return row;
       });
-      row.total = total;
-      return row;
-    });
-  }, [sortedSuppliers, filteredTransactions, recettesChartData]);
+  }, [sortedSuppliers, filteredTransactions, recettesChartData, selectedSupplierFilter]);
 
   const supplierSpecificChartData = useMemo(() => {
     const supplier = entities.find(e => e.name === subTab);
@@ -1937,7 +1983,7 @@ export default function App() {
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           <NavItem active={activeTab === 'accueil'} onClick={() => { setActiveTab('accueil'); setSubTab(''); setIsSidebarOpen(false); }} icon={<LayoutDashboard size={18}/>} label="Vue d'ensemble" />
           <NavItem active={activeTab === 'recettes'} onClick={() => { setActiveTab('recettes'); setSubTab(''); setIsSidebarOpen(false); }} icon={<TrendingUp size={18}/>} label="Caisse" />
-          <NavItem active={activeTab === 'fournisseurs'} onClick={() => { setActiveTab('fournisseurs'); setSubTab('COMMANDES'); setIsSidebarOpen(false); }} icon={<Package size={18}/>} label="Fournisseurs" />
+          <NavItem active={activeTab === 'fournisseurs'} onClick={() => { setActiveTab('fournisseurs'); setSubTab('GLOBAL'); setIsSidebarOpen(false); }} icon={<Package size={18}/>} label="Fournisseurs" />
           <NavItem active={activeTab === 'dcssa'} onClick={() => { setActiveTab('dcssa'); setSubTab('DCSSA'); setIsSidebarOpen(false); }} icon={<FileText size={18}/>} label="DCSSA" />
           <NavItem active={activeTab === 'implants'} onClick={() => { setActiveTab('implants'); setSubTab(''); setIsSidebarOpen(false); }} icon={<Database size={18}/>} label="Implants" />
           <NavItem active={activeTab === 'assurances'} onClick={() => { setActiveTab('assurances'); setSubTab('LISTE'); setIsSidebarOpen(false); }} icon={<ShieldCheck size={18}/>} label="Assurances" />
@@ -2439,6 +2485,13 @@ export default function App() {
                   color="amber" 
                 />
                 <KPICard 
+                  label="Rejets Assurances" 
+                  value={formatCurrency(metrics.rejetsAssurance)} 
+                  trend={calculateGrowth(metrics.rejetsAssurance, prevMetrics.rejetsAssurance)} 
+                  icon={<ShieldAlert className="text-red-500" />} 
+                  color="red" 
+                />
+                <KPICard 
                   label="Montant Factures Réglées" 
                   value={formatCurrency(metrics.montantFacturesReglees)} 
                   trend={calculateGrowth(metrics.montantFacturesReglees, prevMetrics.montantFacturesReglees)} 
@@ -2640,6 +2693,7 @@ export default function App() {
                 <StatCard label="Part Assurance à Réglée" value={formatCurrency(recettesData.partAssuranceAReglee)} subValue="Part mutuelle" color="amber" />
                 <StatCard label="Total Vente à Crédit" value={formatCurrency(recettesData.totalVenteACredit)} subValue="Crédits patients" color="amber" />
                 <StatCard label="Total TPE" value={formatCurrency(recettesData.totalTPE)} subValue="Paiements par carte" color="cyan" />
+                <StatCard label="Rejets Assurances" value={formatCurrency(recettesData.rejetsAssurance)} subValue="Pertes sèches" color="red" />
                 <StatCard label="Totale Toutes Ventes Confondu" value={formatCurrency(recettesData.totalGlobal)} subValue="Chiffre d'affaires" color="emerald" />
               </div>
 
@@ -2669,6 +2723,7 @@ export default function App() {
                       <Line type="monotone" dataKey="tiers" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} name="Part Assurance" />
                       <Line type="monotone" dataKey="credit" stroke="#f59e0b" strokeWidth={3} dot={{ r: 4 }} name="Total Vente à Crédit" />
                       <Line type="monotone" dataKey="tpe" stroke="#06b6d4" strokeWidth={3} dot={{ r: 4 }} name="Total TPE" />
+                      <Line type="monotone" dataKey="rejets" stroke="#ef4444" strokeWidth={3} dot={{ r: 4 }} name="Rejets Assurances" />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -2692,6 +2747,7 @@ export default function App() {
                       { label: 'Part Assurance à Réglée', val: recettesData.partAssuranceAReglee, color: 'text-amber-500', desc: 'Part à payer par la mutuelle' },
                       { label: 'Total Vente à Crédit', val: recettesData.totalVenteACredit, color: 'text-amber-500', desc: 'Ventes à crédit patients' },
                       { label: 'Total TPE', val: recettesData.totalTPE, color: 'text-cyan-500', desc: 'Paiements par carte bancaire' },
+                      { label: 'Rejets Assurances', val: recettesData.rejetsAssurance, color: 'text-red-500', desc: 'Pertes sur rejets mutuelles' },
                     ]).map((row) => (
                       <tr key={row.label} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
                         <td className="px-6 py-4">
@@ -2729,12 +2785,15 @@ export default function App() {
             <div className="space-y-8">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-white/5 pb-4">
                 <div className="flex gap-4 overflow-x-auto no-scrollbar">
-                  {['GLOBAL', 'COMMANDES / FACTURES', 'FACTURES PAYÉES'].map(tab => (
+                  {['GLOBAL', 'COMMANDES', 'FACTURES', 'FACTURES PAYÉES'].map(tab => (
                     <button
                       key={tab}
-                      onClick={() => setSubTab(tab)}
+                      onClick={() => {
+                        setSubTab(tab);
+                        setSelectedInvoices([]);
+                      }}
                       className={cn(
-                        "px-6 py-3 text-sm font-bold transition-all border-b-2",
+                        "px-6 py-3 text-sm font-bold transition-all border-b-2 whitespace-nowrap",
                         subTab === tab ? "border-emerald-500 text-emerald-500" : "border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-300"
                       )}
                     >
@@ -2746,320 +2805,28 @@ export default function App() {
                 <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
                   <Package size={16} className="text-slate-400" />
                   <select
-                    value={['GLOBAL', 'COMMANDES / FACTURES', 'FACTURES PAYÉES'].includes(subTab) ? '' : subTab}
-                    onChange={(e) => setSubTab(e.target.value || 'GLOBAL')}
+                    value={selectedSupplierFilter}
+                    onChange={(e) => {
+                      setSelectedSupplierFilter(e.target.value);
+                      setSelectedInvoices([]);
+                    }}
                     className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
                   >
                     <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
                     {sortedSuppliers.map(s => (
-                      <option key={s.id} value={s.name} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
+                      <option key={s.id} value={s.id} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              {(subTab === 'GLOBAL' || subTab === 'SUIVI') && (
-                <div className="space-y-8">
-                  {subTab === 'GLOBAL' && (
-                    <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
-                      <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Évolution des Commandes (Global)</h3>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={fournisseursChartData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
-                            <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
-                            <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `${v/1000}k`} />
-                            <Tooltip 
-                              contentStyle={{ 
-                                backgroundColor: darkMode ? '#0f172a' : '#ffffff', 
-                                border: darkMode ? '1px solid #1e293b' : '1px solid #e2e8f0', 
-                                borderRadius: '12px',
-                                color: darkMode ? '#f8fafc' : '#0f172a'
-                              }} 
-                              itemStyle={{ color: darkMode ? '#f8fafc' : '#0f172a' }}
-                            />
-                            <Line type="monotone" dataKey="commandes" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Commandes" />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  )}
-
-                  {subTab === 'GLOBAL' && (
-                    fournisseursPivotData.length > 0 ? (
-                      <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-x-auto transition-colors duration-300">
-                        <table className="w-full text-left">
-                          <thead>
-                            <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
-                              {Object.keys(fournisseursPivotData[0]).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
-                                <th key={month} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort(month)}>{month} {getSortIcon(month)}</th>
-                              ))}
-                              <th className="px-6 py-4 text-[10px] font-bold text-emerald-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('total')}>Total {getSortIcon('total')}</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                            {sortData(fournisseursPivotData).map((row) => (
-                              <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
-                                <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{row.name}</td>
-                                {Object.keys(row).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
-                                  <td key={month} className="px-6 py-4 text-sm font-mono text-slate-500 dark:text-slate-400">{formatCurrency(row[month])}</td>
-                                ))}
-                                <td className="px-6 py-4 text-sm font-mono font-bold text-emerald-500">{formatCurrency(row.total)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-8 text-center transition-colors duration-300">
-                        <p className="text-slate-500 dark:text-slate-400 text-sm">Aucun fournisseur enregistré ou aucune donnée disponible.</p>
-                      </div>
-                    )
-                  )}
-
-                  {/* SUIVI DES PAIEMENTS SECTION */}
-                  <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
-                    <div className="p-6 border-b border-slate-200 dark:border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <h3 className="text-lg font-bold text-slate-900 dark:text-white">Suivi des Paiements</h3>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
-                          <Filter size={16} className="text-slate-400" />
-                          <select
-                            value={supplierOrderFilter}
-                            onChange={(e) => setSupplierOrderFilter(e.target.value as any)}
-                            className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
-                          >
-                            <option value="TOUTES" className="bg-white dark:bg-[#0f172a]">Toutes les factures</option>
-                            <option value="PAYEES" className="bg-white dark:bg-[#0f172a]">Payées</option>
-                            <option value="NON_PAYEES" className="bg-white dark:bg-[#0f172a]">Non Payées</option>
-                          </select>
-                        </div>
-                        <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
-                          <Package size={16} className="text-slate-400" />
-                          <select
-                            value={selectedSupplierFilter}
-                            onChange={(e) => setSelectedSupplierFilter(e.target.value)}
-                            className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
-                          >
-                            <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
-                            {sortedSuppliers.map(s => (
-                              <option key={s.id} value={s.id} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left">
-                        <thead>
-                          <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">N° Facture</th>
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Statut</th>
-                            {userRole !== 'directrice' && (
-                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-                            )}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                          {sortData<Transaction>(filteredTransactions.filter(t => 
-                            t.type === 'FACTURE' && 
-                            (selectedSupplierFilter === '' || t.entityId === selectedSupplierFilter) &&
-                            (supplierOrderFilter === 'TOUTES' || (supplierOrderFilter === 'PAYEES' ? t.paid : !t.paid))
-                          )).map((t) => (
-                          <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
-                            <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
-                            <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{t.invoiceNumber || '-'}</td>
-                            <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
-                            <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
-                            <td className="px-6 py-4">
-                              <button
-                                onClick={() => togglePaymentStatus(t)}
-                                disabled={userRole === 'directrice'}
-                                className={cn(
-                                  "flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all",
-                                  t.paid 
-                                    ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20" 
-                                    : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
-                                )}
-                              >
-                                <div className={cn("w-2 h-2 rounded-full", t.paid ? "bg-emerald-500" : "bg-red-500")} />
-                                {t.paid ? 'Payée' : 'Non Payée'}
-                              </button>
-                            </td>
-                            {userRole !== 'directrice' && (
-                              <td className="px-6 py-4 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  <button onClick={() => setEditingTransaction(t)} className="p-2 text-slate-400 hover:text-emerald-500 transition-colors">
-                                    <Edit2 size={14} />
-                                  </button>
-                                  <button onClick={() => handleDeleteTransaction(t.id)} className="p-2 text-slate-400 hover:text-red-500 transition-colors">
-                                    <Trash2 size={14} />
-                                  </button>
-                                </div>
-                              </td>
-                            )}
-                          </tr>
-                          ))}
-                          {filteredTransactions.filter(t => 
-                            t.type === 'FACTURE' && 
-                            (selectedSupplierFilter === '' || t.entityId === selectedSupplierFilter) &&
-                            (supplierOrderFilter === 'TOUTES' || (supplierOrderFilter === 'PAYEES' ? t.paid : !t.paid))
-                          ).length === 0 && (
-                            <tr>
-                              <td colSpan={6} className="px-6 py-12 text-center text-slate-500 dark:text-slate-400">
-                                Aucune facture trouvée.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {subTab === 'COMMANDES / FACTURES' && (
-                <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
-                  <div className="p-6 border-b border-slate-200 dark:border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Toutes les Commandes et Factures par Fournisseur</h3>
-                    <div className="flex flex-col sm:flex-row items-center gap-4">
-                      <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
-                        <Package size={16} className="text-slate-400" />
-                        <select
-                          value={selectedSupplierFilter}
-                          onChange={(e) => setSelectedSupplierFilter(e.target.value)}
-                          className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
-                        >
-                          <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
-                          {sortedSuppliers.map(s => (
-                            <option key={s.id} value={s.id} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
-                        <select
-                          value={supplierOrderFilter}
-                          onChange={(e) => setSupplierOrderFilter(e.target.value as 'TOUTES' | 'PAYEES' | 'NON_PAYEES')}
-                          className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
-                        >
-                          <option value="TOUTES" className="bg-white dark:bg-[#0f172a]">Toutes les commandes</option>
-                          <option value="PAYEES" className="bg-white dark:bg-[#0f172a]">Commandes payées</option>
-                          <option value="NON_PAYEES" className="bg-white dark:bg-[#0f172a]">Commandes non payées</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="divide-y divide-slate-200 dark:divide-white/5">
-                    {sortedSuppliers.filter(e => selectedSupplierFilter === '' || e.id === selectedSupplierFilter).map(supplier => {
-                      const supplierTransactions = filteredTransactions.filter(t => 
-                        t.entityId === supplier.id && 
-                        (t.type === 'COMMANDE' || t.type === 'FACTURE') &&
-                        (supplierOrderFilter === 'TOUTES' || (supplierOrderFilter === 'PAYEES' ? t.paid : !t.paid))
-                      ).sort((a, b) => b.date.getTime() - a.date.getTime());
-                      if (supplierTransactions.length === 0) return null;
-                      
-                      const totalAmount = supplierTransactions.reduce((sum, t) => sum + t.amount, 0);
-                      const isExpanded = expandedSupplierId === supplier.id;
-
-                      return (
-                        <div key={supplier.id} className="flex flex-col">
-                          <button
-                            onClick={() => setExpandedSupplierId(isExpanded ? null : supplier.id)}
-                            className="flex items-center justify-between p-6 hover:bg-slate-50 dark:hover:bg-white/2 transition-colors text-left"
-                          >
-                            <div className="flex items-center gap-4">
-                              <div className={`p-2 rounded-lg transition-colors ${isExpanded ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400' : 'bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400'}`}>
-                                {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
-                              </div>
-                              <div>
-                                <h4 className="text-base font-bold text-slate-900 dark:text-white">{supplier.name}</h4>
-                                <p className="text-sm text-slate-500 dark:text-slate-400">{supplierTransactions.length} commande(s)</p>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-lg font-mono font-bold text-emerald-500">{formatCurrency(totalAmount)}</p>
-                            </div>
-                          </button>
-                          
-                          {isExpanded && (
-                            <div className="bg-slate-50 dark:bg-white/2 p-6 border-t border-slate-200 dark:border-white/5">
-                              <div className="overflow-x-auto">
-                                <table className="w-full text-left">
-                                  <thead>
-                                    <tr className="border-b border-slate-200 dark:border-white/5">
-                                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">N° Facture</th>
-                                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
-                                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
-                                      <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Statut</th>
-                                      {userRole !== 'directrice' && (
-                                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-                                      )}
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                                    {supplierTransactions.map((t) => (
-                                      <tr key={t.id} className="hover:bg-white dark:hover:bg-white/5 transition-colors">
-                                        <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
-                                        <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{t.invoiceNumber || '-'}</td>
-                                        <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
-                                        <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.description}</td>
-                                        <td className="px-6 py-4">
-                                          <span className={cn(
-                                            "px-2 py-1 rounded-md text-[9px] font-bold uppercase",
-                                            t.paid ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"
-                                          )}>
-                                            {t.paid ? 'PAYÉE' : 'NON PAYÉE'}
-                                          </span>
-                                        </td>
-                                        {userRole !== 'directrice' && (
-                                          <td className="px-6 py-4 text-right">
-                                            <div className="flex items-center justify-end gap-2">
-                                              <button 
-                                                onClick={() => setEditingTransaction(t)}
-                                                className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
-                                              >
-                                                <Edit2 size={16} />
-                                              </button>
-                                              <button 
-                                                onClick={() => handleDeleteTransaction(t.id)}
-                                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
-                                              >
-                                                <Trash2 size={16} />
-                                              </button>
-                                            </div>
-                                          </td>
-                                        )}
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {sortedSuppliers.every(supplier => filteredTransactions.filter(t => t.entityId === supplier.id && (t.type === 'COMMANDE' || t.type === 'FACTURE')).length === 0) && (
-                      <div className="p-8 text-center text-slate-500 dark:text-slate-400">
-                        Aucune commande ou facture trouvée pour la période sélectionnée.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {subTab !== 'GLOBAL' && subTab !== 'COMMANDES' && subTab !== 'FACTURES' && (
+              {subTab === 'GLOBAL' && (
                 <div className="space-y-8">
                   <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-6 transition-colors duration-300">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Commandes: {subTab}</h3>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Évolution des Commandes (Global)</h3>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={supplierSpecificChartData}>
+                        <LineChart data={fournisseursChartData}>
                           <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#1e293b" : "#e2e8f0"} vertical={false} />
                           <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
                           <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `${v/1000}k`} />
@@ -3078,205 +2845,498 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white p-6 border-b border-slate-200 dark:border-white/5">Détail des Commandes: {subTab}</h3>
-                    <div className="overflow-x-auto">
+                  {fournisseursPivotData.length > 0 ? (
+                    <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-x-auto transition-colors duration-300">
                       <table className="w-full text-left">
                         <thead>
                           <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('description')}>Description {getSortIcon('description')}</th>
-                            {userRole !== 'directrice' && (
-                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-                            )}
+                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
+                            {Object.keys(fournisseursPivotData[0]).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
+                              <th key={month} className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort(month)}>{month} {getSortIcon(month)}</th>
+                            ))}
+                            <th className="px-6 py-4 text-[10px] font-bold text-emerald-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('total')}>Total {getSortIcon('total')}</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                          {sortData(transactions
-                            .filter(t => t.type === 'COMMANDE' && entities.find(e => e.id === t.entityId)?.name === subTab)
-                            .sort((a, b) => b.date.getTime() - a.date.getTime()))
-                            .map((t) => (
-                            <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
-                              <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
-                              <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
-                              <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.description}</td>
-                              {userRole !== 'directrice' && (
-                                <td className="px-6 py-4 text-right">
-                                  <div className="flex items-center justify-end gap-2">
-                                    <button 
-                                      onClick={() => setEditingTransaction(t)}
-                                      className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
-                                    >
-                                      <Edit2 size={16} />
-                                    </button>
-                                    <button 
-                                      onClick={() => handleDeleteTransaction(t.id)}
-                                      className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
-                                    >
-                                      <Trash2 size={16} />
-                                    </button>
-                                  </div>
-                                </td>
-                              )}
+                          {sortData(fournisseursPivotData).map((row) => (
+                            <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                              <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{row.name}</td>
+                              {Object.keys(row).filter(k => k !== 'name' && k !== 'id' && k !== 'total').map(month => (
+                                <td key={month} className="px-6 py-4 text-sm font-mono text-slate-500 dark:text-slate-400">{formatCurrency(row[month])}</td>
+                              ))}
+                              <td className="px-6 py-4 text-sm font-mono font-bold text-emerald-500">{formatCurrency(row.total)}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl p-8 text-center transition-colors duration-300">
+                      <p className="text-slate-500 dark:text-slate-400 text-sm">Aucun fournisseur enregistré ou aucune donnée disponible.</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
-                  <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white p-6 border-b border-slate-200 dark:border-white/5">Détail des Factures: {subTab}</h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left">
-                        <thead>
-                          <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('status')}>Statut {getSortIcon('status')}</th>
-                            {userRole !== 'directrice' && (
-                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+              {subTab === 'COMMANDES' && (
+                <div className="space-y-12">
+                  {/* SECTION 1: COMMANDES */}
+                  <div className="bg-white dark:bg-[#0e1629] border-t-4 border-t-emerald-500 border-x border-b border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300 shadow-sm">
+                    <div className="p-6 border-b border-slate-200 dark:border-white/5 flex items-center gap-3 bg-emerald-50/30 dark:bg-emerald-500/5">
+                      <div className="p-2 bg-emerald-500/10 text-emerald-500 rounded-lg">
+                        <Package size={20} />
+                      </div>
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white uppercase tracking-wider">Suivi des Commandes</h3>
+                    </div>
+                    <div className="divide-y divide-slate-200 dark:divide-white/5">
+                      {sortedSuppliers.filter(e => selectedSupplierFilter === '' || e.id === selectedSupplierFilter).map(supplier => {
+                        const supplierCommands = filteredTransactions.filter(t => 
+                          t.entityId === supplier.id && t.type === 'COMMANDE'
+                        ).sort((a, b) => b.date.getTime() - a.date.getTime());
+                        
+                        if (supplierCommands.length === 0) return null;
+                        
+                        const totalAmount = supplierCommands.reduce((sum, t) => sum + t.amount, 0);
+                        const isExpanded = expandedSupplierId === `cmd-${supplier.id}`;
+
+                        return (
+                          <div key={`cmd-${supplier.id}`} className="flex flex-col">
+                            <button
+                              onClick={() => setExpandedSupplierId(isExpanded ? null : `cmd-${supplier.id}`)}
+                              className="flex items-center justify-between p-6 hover:bg-slate-50 dark:hover:bg-white/2 transition-colors text-left"
+                            >
+                              <div className="flex items-center gap-4">
+                                <div className={`p-2 rounded-lg transition-colors ${isExpanded ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400' : 'bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400'}`}>
+                                  {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                                </div>
+                                <div>
+                                  <h4 className="text-base font-bold text-slate-900 dark:text-white">{supplier.name}</h4>
+                                  <p className="text-sm text-slate-500 dark:text-slate-400">{supplierCommands.length} commande(s)</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-lg font-mono font-bold text-emerald-500">{formatCurrency(totalAmount)}</p>
+                              </div>
+                            </button>
+                            
+                            {isExpanded && (
+                              <div className="bg-slate-50 dark:bg-white/2 p-6 border-t border-slate-200 dark:border-white/5">
+                                <div className="overflow-x-auto bg-white dark:bg-[#0f172a] rounded-xl border border-slate-200 dark:border-white/10">
+                                  <table className="w-full text-left">
+                                    <thead>
+                                      <tr className="border-b border-slate-200 dark:border-white/5">
+                                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">N° Commande</th>
+                                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                                        <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
+                                        {userRole !== 'directrice' && (
+                                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                                        )}
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-200 dark:divide-white/5">
+                                      {supplierCommands.map((t) => (
+                                        <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                                          <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                                          <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{t.invoiceNumber || '-'}</td>
+                                          <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
+                                          <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{t.description}</td>
+                                          {userRole !== 'directrice' && (
+                                            <td className="px-6 py-4 text-right">
+                                              <div className="flex items-center justify-end gap-2">
+                                                <button 
+                                                  onClick={() => setEditingTransaction(t)}
+                                                  className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
+                                                >
+                                                  <Edit2 size={14} />
+                                                </button>
+                                                <button 
+                                                  onClick={() => handleDeleteTransaction(t.id)}
+                                                  className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                                >
+                                                  <Trash2 size={14} />
+                                                </button>
+                                              </div>
+                                            </td>
+                                          )}
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
                             )}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                          {sortData(transactions
-                            .filter(t => t.type === 'FACTURE' && entities.find(e => e.id === t.entityId)?.name === subTab)
-                            .sort((a, b) => b.date.getTime() - a.date.getTime()))
-                            .map((t) => (
-                            <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
-                              <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
-                              <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
-                              <td className="px-6 py-4">
-                                <span className={cn(
-                                  "px-2 py-1 rounded-md text-[9px] font-bold uppercase",
-                                  t.status === 'PAYÉE' ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"
-                                )}>
-                                  {t.status}
-                                </span>
-                              </td>
-                              {userRole !== 'directrice' && (
-                                <td className="px-6 py-4 text-right">
-                                  <div className="flex items-center justify-end gap-2">
-                                    <button 
-                                      onClick={() => setEditingTransaction(t)}
-                                      className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
-                                    >
-                                      <Edit2 size={16} />
-                                    </button>
-                                    <button 
-                                      onClick={() => handleDeleteTransaction(t.id)}
-                                      className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
-                                    >
-                                      <Trash2 size={16} />
-                                    </button>
+                          </div>
+                        );
+                      })}
+                      {sortedSuppliers.every(supplier => !filteredTransactions.some(t => t.entityId === supplier.id && t.type === 'COMMANDE')) && (
+                        <div className="p-8 text-center text-slate-500 dark:text-slate-400">
+                          Aucune commande trouvée pour la période sélectionnée.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {subTab === 'FACTURES' && (
+                <div className="space-y-12">
+                  {/* SECTION 2: FACTURES EN ATTENTE */}
+                  <div className="bg-white dark:bg-[#0e1629] border-t-4 border-t-blue-500 border-x border-b border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300 shadow-sm">
+                    <div className="p-6 border-b border-slate-200 dark:border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-blue-50/30 dark:bg-blue-500/5">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-blue-500/10 text-blue-500 rounded-lg">
+                          <FileText size={20} />
+                        </div>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-white uppercase tracking-wider">Factures en attente</h3>
+                      </div>
+                      {selectedInvoices.length > 0 && (
+                        <button
+                          onClick={() => handleBulkPaymentStatus(true)}
+                          className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-emerald-500/20"
+                        >
+                          <CheckCircle2 size={16} />
+                          Marquer comme Payé ({selectedInvoices.length})
+                        </button>
+                      )}
+                    </div>
+                    <div className="divide-y divide-slate-200 dark:divide-white/5">
+                      {sortedSuppliers.filter(e => selectedSupplierFilter === '' || e.id === selectedSupplierFilter).map(supplier => {
+                        const unpaidInvoices = filteredTransactions.filter(t => 
+                          t.entityId === supplier.id && t.type === 'FACTURE' && !t.paid
+                        ).sort((a, b) => b.date.getTime() - a.date.getTime());
+                        
+                        if (unpaidInvoices.length === 0) return null;
+                        
+                        const totalUnpaid = unpaidInvoices.reduce((sum, t) => sum + t.amount, 0);
+                        const isExpanded = expandedSupplierId === `fac-${supplier.id}`;
+
+                        return (
+                          <div key={`fac-${supplier.id}`} className="flex flex-col">
+                            <div className="flex items-center hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                              <div className="px-6 py-4 flex items-center gap-3">
+                                <input
+                                  type="checkbox"
+                                  checked={unpaidInvoices.length > 0 && unpaidInvoices.every(t => selectedInvoices.includes(t.id))}
+                                  onChange={() => {
+                                    const allSelected = unpaidInvoices.every(t => selectedInvoices.includes(t.id));
+                                    if (allSelected) {
+                                      setSelectedInvoices(prev => prev.filter(id => !unpaidInvoices.find(inv => inv.id === id)));
+                                    } else {
+                                      const newIds = unpaidInvoices.map(inv => inv.id).filter(id => !selectedInvoices.includes(id));
+                                      setSelectedInvoices(prev => [...prev, ...newIds]);
+                                    }
+                                  }}
+                                  className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                />
+                              </div>
+                              <button
+                                onClick={() => setExpandedSupplierId(isExpanded ? null : `fac-${supplier.id}`)}
+                                className="flex-1 flex items-center justify-between p-6 pl-0 transition-colors text-left"
+                              >
+                                <div className="flex items-center gap-4">
+                                  <div className={`p-2 rounded-lg transition-colors ${isExpanded ? 'bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400' : 'bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400'}`}>
+                                    {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
                                   </div>
-                                </td>
-                              )}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                                  <div>
+                                    <h4 className="text-base font-bold text-slate-900 dark:text-white">{supplier.name}</h4>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">{unpaidInvoices.length} facture(s) en attente</p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-lg font-mono font-bold text-emerald-500">{formatCurrency(totalUnpaid)}</p>
+                                </div>
+                              </button>
+                            </div>
+                            
+                            {isExpanded && (
+                              <div className="bg-slate-50 dark:bg-white/2 p-6 border-t border-slate-200 dark:border-white/5 space-y-6">
+                                {Object.entries(
+                                  unpaidInvoices.reduce((groups, t) => {
+                                    const label = getFortnightLabel(t.date);
+                                    if (!groups[label]) groups[label] = [];
+                                    groups[label].push(t);
+                                    return groups;
+                                  }, {} as Record<string, typeof unpaidInvoices>)
+                                ).map(([fortnight, invoicesGroup]) => {
+                                  const invoices = invoicesGroup as Transaction[];
+                                  const fortnightTotal = invoices.reduce((sum, t) => sum + t.amount, 0);
+                                  const allInFortnightSelected = invoices.every(t => selectedInvoices.includes(t.id));
+                                  
+                                  return (
+                                    <div key={fortnight} className="bg-white dark:bg-[#0f172a] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden">
+                                      <div className="px-4 py-3 bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/10 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                          <input
+                                            type="checkbox"
+                                            checked={allInFortnightSelected}
+                                            onChange={() => {
+                                              if (allInFortnightSelected) {
+                                                setSelectedInvoices(prev => prev.filter(id => !invoices.find(inv => inv.id === id)));
+                                              } else {
+                                                const newIds = invoices.map(inv => inv.id).filter(id => !selectedInvoices.includes(id));
+                                                setSelectedInvoices(prev => [...prev, ...newIds]);
+                                              }
+                                            }}
+                                            className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                          />
+                                          <span className="text-sm font-bold text-slate-900 dark:text-white">{fortnight}</span>
+                                        </div>
+                                        <span className="text-sm font-mono font-bold text-emerald-500">{formatCurrency(fortnightTotal)}</span>
+                                      </div>
+                                      <div className="overflow-x-auto">
+                                        <table className="w-full text-left">
+                                          <thead>
+                                            <tr className="border-b border-slate-200 dark:border-white/5">
+                                              <th className="px-4 py-4 w-10"></th>
+                                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">N° Facture</th>
+                                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
+                                              {userRole !== 'directrice' && (
+                                                <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                                              )}
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-slate-200 dark:divide-white/5">
+                                            {invoices.map((t) => (
+                                              <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                                                <td className="px-4 py-3 w-10">
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={selectedInvoices.includes(t.id)}
+                                                    onChange={() => {
+                                                      setSelectedInvoices(prev => 
+                                                        prev.includes(t.id) 
+                                                          ? prev.filter(id => id !== t.id)
+                                                          : [...prev, t.id]
+                                                      );
+                                                    }}
+                                                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                                  />
+                                                </td>
+                                                <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                                                <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{t.invoiceNumber || '-'}</td>
+                                                <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400 truncate max-w-[200px]">{t.description}</td>
+                                                {userRole !== 'directrice' && (
+                                                  <td className="px-6 py-4 text-right">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                      <button 
+                                                        onClick={() => setEditingTransaction(t)}
+                                                        className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
+                                                      >
+                                                        <Edit2 size={14} />
+                                                      </button>
+                                                      <button 
+                                                        onClick={() => handleDeleteTransaction(t.id)}
+                                                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                                      >
+                                                        <Trash2 size={14} />
+                                                      </button>
+                                                    </div>
+                                                  </td>
+                                                )}
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {sortedSuppliers.every(supplier => !filteredTransactions.some(t => t.entityId === supplier.id && t.type === 'FACTURE' && !t.paid)) && (
+                        <div className="p-8 text-center text-slate-500 dark:text-slate-400">
+                          Aucune facture en attente trouvée pour la période sélectionnée.
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               )}
 
               {subTab === 'FACTURES PAYÉES' && (
-                <div className="bg-white dark:bg-[#0e1629] border border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300">
-                  <div className="p-6 border-b border-slate-200 dark:border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Factures Payées & Non Payées</h3>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
-                        <Filter size={16} className="text-slate-400" />
-                        <select
-                          value={supplierOrderFilter}
-                          onChange={(e) => setSupplierOrderFilter(e.target.value as any)}
-                          className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
-                        >
-                          <option value="TOUTES" className="bg-white dark:bg-[#0f172a]">Toutes les factures</option>
-                          <option value="PAYEES" className="bg-white dark:bg-[#0f172a]">Payées</option>
-                          <option value="NON_PAYEES" className="bg-white dark:bg-[#0f172a]">Non Payées</option>
-                        </select>
+                <div className="space-y-12">
+                  {/* SECTION 3: FACTURES PAYÉES */}
+                  <div className="bg-white dark:bg-[#0e1629] border-t-4 border-t-amber-500 border-x border-b border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden transition-colors duration-300 shadow-sm">
+                    <div className="p-6 border-b border-slate-200 dark:border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-amber-50/30 dark:bg-amber-500/5">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-amber-500/10 text-amber-500 rounded-lg">
+                          <CheckCircle2 size={20} />
+                        </div>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-white uppercase tracking-wider">Factures Payées</h3>
                       </div>
-                      <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/5 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-white/10">
-                        <Package size={16} className="text-slate-400" />
-                        <select
-                          value={selectedSupplierFilter}
-                          onChange={(e) => setSelectedSupplierFilter(e.target.value)}
-                          className="bg-transparent border-none text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                      {selectedInvoices.length > 0 && (
+                        <button
+                          onClick={() => handleBulkPaymentStatus(false)}
+                          className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-amber-500/20"
                         >
-                          <option value="" className="bg-white dark:bg-[#0f172a]">Tous les fournisseurs</option>
-                          {sortedSuppliers.map(s => (
-                            <option key={s.id} value={s.id} className="bg-white dark:bg-[#0f172a]">{s.name}</option>
-                          ))}
-                        </select>
-                      </div>
+                          <XCircle size={16} />
+                          Marquer comme Non Payé ({selectedInvoices.length})
+                        </button>
+                      )}
                     </div>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="bg-slate-50 dark:bg-white/2 border-b border-slate-200 dark:border-white/5">
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fournisseur</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('invoiceNumber')}>N° Facture {getSortIcon('invoiceNumber')}</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('amount')}>Montant {getSortIcon('amount')}</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('date')}>Date {getSortIcon('date')}</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 transition-colors" onClick={() => handleSort('status')}>Statut {getSortIcon('status')}</th>
-                          {userRole !== 'directrice' && (
-                            <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-                          )}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200 dark:divide-white/5">
-                        {sortData<Transaction>(filteredTransactions.filter(t => 
-                          (t.type === 'COMMANDE' || t.type === 'FACTURE') && 
-                          (selectedSupplierFilter === '' || t.entityId === selectedSupplierFilter) &&
-                          (supplierOrderFilter === 'TOUTES' || (supplierOrderFilter === 'PAYEES' ? t.paid : !t.paid))
-                        )).map((t) => (
-                        <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
-                          <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">{entities.find(e => e.id === t.entityId)?.name}</td>
-                          <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{t.invoiceNumber || '-'}</td>
-                          <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
-                          <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
-                          <td className="px-6 py-4">
-                            <button
-                              onClick={() => togglePaymentStatus(t)}
-                              disabled={userRole === 'directrice'}
-                              className={cn(
-                                "flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all",
-                                t.paid 
-                                  ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20" 
-                                  : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
-                              )}
-                            >
-                              <div className={cn("w-2 h-2 rounded-full", t.paid ? "bg-emerald-500" : "bg-red-500")} />
-                              {t.paid ? 'Payée' : 'Non Payée'}
-                            </button>
-                          </td>
-                          {userRole !== 'directrice' && (
-                            <td className="px-6 py-4 text-right">
-                              <div className="flex items-center justify-end gap-2">
-                                <button 
-                                  onClick={() => setEditingTransaction(t)}
-                                  className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
-                                >
-                                  <Edit2 size={16} />
-                                </button>
-                                <button 
-                                  onClick={() => handleDeleteTransaction(t.id)}
-                                  className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
+                    <div className="divide-y divide-slate-200 dark:divide-white/5">
+                      {sortedSuppliers.filter(e => selectedSupplierFilter === '' || e.id === selectedSupplierFilter).map(supplier => {
+                        const paidInvoices = filteredTransactions.filter(t => 
+                          t.entityId === supplier.id && t.type === 'FACTURE' && t.paid
+                        ).sort((a, b) => b.date.getTime() - a.date.getTime());
+                        
+                        if (paidInvoices.length === 0) return null;
+                        
+                        const totalPaid = paidInvoices.reduce((sum, t) => sum + t.amount, 0);
+                        const isExpanded = expandedSupplierId === `paid-${supplier.id}`;
+
+                        return (
+                          <div key={`paid-${supplier.id}`} className="flex flex-col">
+                            <div className="flex items-center hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                              <div className="px-6 py-4 flex items-center gap-3">
+                                <input
+                                  type="checkbox"
+                                  checked={paidInvoices.length > 0 && paidInvoices.every(t => selectedInvoices.includes(t.id))}
+                                  onChange={() => {
+                                    const allSelected = paidInvoices.every(t => selectedInvoices.includes(t.id));
+                                    if (allSelected) {
+                                      setSelectedInvoices(prev => prev.filter(id => !paidInvoices.find(inv => inv.id === id)));
+                                    } else {
+                                      const newIds = paidInvoices.map(inv => inv.id).filter(id => !selectedInvoices.includes(id));
+                                      setSelectedInvoices(prev => [...prev, ...newIds]);
+                                    }
+                                  }}
+                                  className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                                />
                               </div>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                              <button
+                                onClick={() => setExpandedSupplierId(isExpanded ? null : `paid-${supplier.id}`)}
+                                className="flex-1 flex items-center justify-between p-6 pl-0 transition-colors text-left"
+                              >
+                                <div className="flex items-center gap-4">
+                                  <div className={`p-2 rounded-lg transition-colors ${isExpanded ? 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400' : 'bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400'}`}>
+                                    {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                                  </div>
+                                  <div>
+                                    <h4 className="text-base font-bold text-slate-900 dark:text-white">{supplier.name}</h4>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">{paidInvoices.length} facture(s) payée(s)</p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-lg font-mono font-bold text-emerald-500">{formatCurrency(totalPaid)}</p>
+                                </div>
+                              </button>
+                            </div>
+                            
+                            {isExpanded && (
+                              <div className="bg-slate-50 dark:bg-white/2 p-6 border-t border-slate-200 dark:border-white/5 space-y-6">
+                                {Object.entries(
+                                  paidInvoices.reduce((groups, t) => {
+                                    const label = getFortnightLabel(t.date);
+                                    if (!groups[label]) groups[label] = [];
+                                    groups[label].push(t);
+                                    return groups;
+                                  }, {} as Record<string, typeof paidInvoices>)
+                                ).map(([fortnight, invoicesGroup]) => {
+                                  const invoices = invoicesGroup as Transaction[];
+                                  const fortnightTotal = invoices.reduce((sum, t) => sum + t.amount, 0);
+                                  const allInFortnightSelected = invoices.every(t => selectedInvoices.includes(t.id));
+                                  
+                                  return (
+                                    <div key={fortnight} className="bg-white dark:bg-[#0f172a] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden">
+                                      <div className="px-4 py-3 bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/10 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                          <input
+                                            type="checkbox"
+                                            checked={allInFortnightSelected}
+                                            onChange={() => {
+                                              if (allInFortnightSelected) {
+                                                setSelectedInvoices(prev => prev.filter(id => !invoices.find(inv => inv.id === id)));
+                                              } else {
+                                                const newIds = invoices.map(inv => inv.id).filter(id => !selectedInvoices.includes(id));
+                                                setSelectedInvoices(prev => [...prev, ...newIds]);
+                                              }
+                                            }}
+                                            className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                          />
+                                          <span className="text-sm font-bold text-slate-900 dark:text-white">{fortnight}</span>
+                                        </div>
+                                        <span className="text-sm font-mono font-bold text-emerald-500">{formatCurrency(fortnightTotal)}</span>
+                                      </div>
+                                      <div className="overflow-x-auto">
+                                        <table className="w-full text-left">
+                                          <thead>
+                                            <tr className="border-b border-slate-200 dark:border-white/5">
+                                              <th className="px-4 py-4 w-10"></th>
+                                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">N° Facture</th>
+                                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Montant</th>
+                                              <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Description</th>
+                                              {userRole !== 'directrice' && (
+                                                <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                                              )}
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-slate-200 dark:divide-white/5">
+                                            {invoices.map((t) => (
+                                              <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-white/2 transition-colors">
+                                                <td className="px-4 py-3 w-10">
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={selectedInvoices.includes(t.id)}
+                                                    onChange={() => {
+                                                      setSelectedInvoices(prev => 
+                                                        prev.includes(t.id) 
+                                                          ? prev.filter(id => id !== t.id)
+                                                          : [...prev, t.id]
+                                                      );
+                                                    }}
+                                                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                                  />
+                                                </td>
+                                                <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{format(t.date, 'dd/MM/yyyy')}</td>
+                                                <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{t.invoiceNumber || '-'}</td>
+                                                <td className="px-6 py-4 text-sm font-mono text-slate-900 dark:text-white">{formatCurrency(t.amount)}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400 truncate max-w-[200px]">{t.description}</td>
+                                                {userRole !== 'directrice' && (
+                                                  <td className="px-6 py-4 text-right">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                      <button 
+                                                        onClick={() => setEditingTransaction(t)}
+                                                        className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-all"
+                                                      >
+                                                        <Edit2 size={14} />
+                                                      </button>
+                                                      <button 
+                                                        onClick={() => handleDeleteTransaction(t.id)}
+                                                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                                      >
+                                                        <Trash2 size={14} />
+                                                      </button>
+                                                    </div>
+                                                  </td>
+                                                )}
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {sortedSuppliers.every(supplier => !filteredTransactions.some(t => t.entityId === supplier.id && t.type === 'FACTURE' && t.paid)) && (
+                        <div className="p-8 text-center text-slate-500 dark:text-slate-400">
+                          Aucune facture payée trouvée pour la période sélectionnée.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -3788,6 +3848,28 @@ export default function App() {
 
                           if (newTx) {
                             addLog('CREATE', 'TRANSACTION', newTx.id, `Saisie manuelle: ${type} - ${formatCurrency(amount)}`, undefined, newTx);
+                            
+                            // Duplication automatique de COMMANDE vers FACTURE
+                            if (type === 'COMMANDE') {
+                              const invoiceData = {
+                                ...txData,
+                                type: 'FACTURE' as TransactionType,
+                                description: `Facture (dupliquée de Commande) - ${desc || 'COMMANDE'}`,
+                                paid: false // Les factures sont impayées par défaut
+                              };
+                              
+                              const newInvoice = await performWrite(
+                                () => api.createTransaction(invoiceData),
+                                'CREATE',
+                                'transactions',
+                                invoiceData
+                              );
+                              
+                              if (newInvoice) {
+                                addLog('CREATE', 'TRANSACTION', newInvoice.id, `Facture dupliquée de la commande: ${formatCurrency(amount)}`, undefined, newInvoice);
+                              }
+                            }
+                            
                             toast.success('Donnée enregistrée');
                           }
                         }
@@ -4367,6 +4449,141 @@ export default function App() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+
+                <div className="mt-8 pt-8 border-t border-slate-200 dark:border-white/5">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Maintenance des données</h3>
+                  <div className="p-4 bg-amber-50 dark:bg-amber-500/5 border border-amber-200 dark:border-amber-500/20 rounded-xl">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                        <h4 className="text-sm font-bold text-amber-900 dark:text-amber-500">Régulariser les anciennes commandes</h4>
+                        <p className="text-xs text-amber-700 dark:text-amber-500/70 mt-1">
+                          Génère automatiquement les factures manquantes pour les commandes saisies avant la mise en place de la duplication automatique.
+                        </p>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          const commandes = transactions.filter(t => t.type === 'COMMANDE');
+                          const factures = transactions.filter(t => t.type === 'FACTURE');
+                          
+                          let missingCount = 0;
+                          const matchedFactureIds = new Set<string>();
+
+                          for (const cmd of commandes) {
+                            // 1. Try to find exact match (same entity, amount, and exact same day)
+                            let matchingFacture = factures.find(f => 
+                              !matchedFactureIds.has(f.id) &&
+                              f.entityId === cmd.entityId && 
+                              f.amount === cmd.amount && 
+                              f.date.getFullYear() === cmd.date.getFullYear() &&
+                              f.date.getMonth() === cmd.date.getMonth() &&
+                              f.date.getDate() === cmd.date.getDate()
+                            );
+                            
+                            // 2. If no exact match, try to find a facture with same entity and amount within 30 days
+                            if (!matchingFacture) {
+                              matchingFacture = factures.find(f => 
+                                !matchedFactureIds.has(f.id) &&
+                                f.entityId === cmd.entityId && 
+                                f.amount === cmd.amount &&
+                                Math.abs(f.date.getTime() - cmd.date.getTime()) < 30 * 24 * 60 * 60 * 1000
+                              );
+                            }
+                            
+                            if (matchingFacture) {
+                              // Mark this facture as matched so we don't use it for another command
+                              matchedFactureIds.add(matchingFacture.id);
+                            } else {
+                              // No matching facture found, we need to create one
+                              const invoiceData = {
+                                ...cmd,
+                                type: 'FACTURE' as TransactionType,
+                                description: `Facture (régularisation) - ${cmd.description || 'COMMANDE'}`,
+                                paid: false
+                              };
+                              // Remove id to create a new one
+                              const { id, ...dataToCreate } = invoiceData;
+                              await api.createTransaction(dataToCreate as any);
+                              missingCount++;
+                            }
+                          }
+                          
+                          if (missingCount > 0) {
+                            toast.success(`${missingCount} facture(s) manquante(s) générée(s) avec succès.`);
+                            // Reload transactions
+                            const txs = await api.getTransactions();
+                            setTransactions(txs);
+                          } else {
+                            toast.info("Toutes les commandes ont déjà leur facture correspondante.");
+                          }
+                        }}
+                        className="shrink-0 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                      >
+                        Générer les factures manquantes
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-red-50 dark:bg-red-500/5 border border-red-200 dark:border-red-500/20 rounded-xl mt-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                        <h4 className="text-sm font-bold text-red-900 dark:text-red-500">Nettoyer les factures en double</h4>
+                        <p className="text-xs text-red-700 dark:text-red-500/70 mt-1">
+                          Détecte et supprime automatiquement les factures générées en double par erreur.
+                        </p>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          const factures = transactions.filter(t => t.type === 'FACTURE');
+                          const uniqueKeys = new Set<string>();
+                          const duplicatesToDelete: string[] = [];
+
+                          for (const f of factures) {
+                            // Signature unique : fournisseur + montant + date exacte + description
+                            const key = `${f.entityId}_${f.amount}_${f.date.getFullYear()}-${f.date.getMonth()}-${f.date.getDate()}_${f.description}`;
+                            
+                            if (uniqueKeys.has(key)) {
+                              duplicatesToDelete.push(f.id);
+                            } else {
+                              uniqueKeys.add(key);
+                            }
+                          }
+
+                          if (duplicatesToDelete.length > 0) {
+                            setConfirmDialog({
+                              open: true,
+                              title: 'Nettoyer les doublons',
+                              message: `${duplicatesToDelete.length} factures en double ont été détectées. Voulez-vous les supprimer définitivement ?`,
+                              onConfirm: async () => {
+                                try {
+                                  // Suppression par lot
+                                  await Promise.all(duplicatesToDelete.map(id => api.deleteTransaction(id)));
+                                  
+                                  await api.addLog({
+                                    action: 'DELETE',
+                                    targetType: 'TRANSACTION',
+                                    targetId: 'BULK_CLEANUP',
+                                    details: `Suppression de ${duplicatesToDelete.length} factures en double`
+                                  });
+                                  
+                                  toast.success(`${duplicatesToDelete.length} doublons supprimés avec succès.`);
+                                  const txs = await api.getTransactions();
+                                  setTransactions(txs);
+                                } catch (e) {
+                                  toast.error("Erreur lors de la suppression des doublons.");
+                                }
+                              }
+                            });
+                          } else {
+                            toast.info("Aucune facture en double détectée.");
+                          }
+                        }}
+                        className="shrink-0 px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                      >
+                        Supprimer les doublons
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

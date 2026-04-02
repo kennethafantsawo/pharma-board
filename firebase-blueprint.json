@@ -39,7 +39,11 @@
         "status": { "type": "string" },
         "reason": { "type": "string" },
         "dossiers": { "type": "number" },
-        "beneficiaires": { "type": "number" }
+        "beneficiaires": { "type": "number" },
+        "invoiceNumber": { "type": "string" },
+        "paid": { "type": "boolean" },
+        "delivered": { "type": "boolean" },
+        "period": { "type": "string" }
       },
       "required": ["date", "type", "amount", "category", "description"]
     },

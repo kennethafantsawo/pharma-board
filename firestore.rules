@@ -36,6 +36,10 @@ service cloud.firestore {
     //   - reason: string (optional)
     //   - dossiers: number (optional)
     //   - beneficiaires: number (optional)
+    //   - invoiceNumber: string (optional)
+    //   - paid: boolean (optional)
+    //   - delivered: boolean (optional)
+    //   - period: string (optional)
     //
     // Collection: audit_logs
     // Document ID: auto-generated
@@ -99,7 +103,10 @@ service cloud.firestore {
       return hasRequiredFields(['name', 'type', 'status']) &&
              data.name is string &&
              data.type in ['FOURNISSEUR', 'ASSURANCE', 'PARTENAIRE'] &&
-             data.status in ['ACTIF', 'INACTIF'];
+             data.status in ['ACTIF', 'INACTIF'] &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() < 50)) &&
+             (!('email' in data) || (data.email is string && data.email.size() < 100)) &&
+             (!('address' in data) || (data.address is string && data.address.size() < 200));
     }
     
     function isValidTransaction(data) {
@@ -113,7 +120,11 @@ service cloud.firestore {
              (!('status' in data) || (data.status is string && data.status.size() < 50)) &&
              (!('reason' in data) || (data.reason is string && data.reason.size() < 500)) &&
              (!('dossiers' in data) || data.dossiers is number) &&
-             (!('beneficiaires' in data) || data.beneficiaires is number);
+             (!('beneficiaires' in data) || data.beneficiaires is number) &&
+             (!('invoiceNumber' in data) || (data.invoiceNumber is string && data.invoiceNumber.size() < 100)) &&
+             (!('paid' in data) || data.paid is bool) &&
+             (!('delivered' in data) || data.delivered is bool) &&
+             (!('period' in data) || (data.period is string && data.period.size() < 100));
     }
     
     function isValidAuditLog(data) {
