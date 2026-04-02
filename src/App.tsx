@@ -2988,7 +2988,20 @@ export default function App() {
                         <div className="p-2 bg-blue-500/10 text-blue-500 rounded-lg">
                           <FileText size={20} />
                         </div>
-                        <h3 className="text-lg font-bold text-slate-900 dark:text-white uppercase tracking-wider">Factures en attente</h3>
+                        <div className="flex items-center gap-3">
+                          <h3 className="text-lg font-bold text-slate-900 dark:text-white uppercase tracking-wider">Factures en attente</h3>
+                          <span className="px-3 py-1 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 text-sm font-bold rounded-full pl-[13px] ml-[560px]">
+                            {formatCurrency(
+                              sortedSuppliers
+                                .filter(e => selectedSupplierFilter === '' || e.id === selectedSupplierFilter)
+                                .reduce((total, supplier) => {
+                                  return total + filteredTransactions
+                                    .filter(t => t.entityId === supplier.id && t.type === 'FACTURE' && !t.paid)
+                                    .reduce((sum, t) => sum + t.amount, 0);
+                                }, 0)
+                            )}
+                          </span>
+                        </div>
                       </div>
                       {selectedInvoices.length > 0 && (
                         <button
@@ -3169,7 +3182,20 @@ export default function App() {
                         <div className="p-2 bg-amber-500/10 text-amber-500 rounded-lg">
                           <CheckCircle2 size={20} />
                         </div>
-                        <h3 className="text-lg font-bold text-slate-900 dark:text-white uppercase tracking-wider">Factures Payées</h3>
+                        <div className="flex items-center gap-3">
+                          <h3 className="text-lg font-bold text-slate-900 dark:text-white uppercase tracking-wider">Factures Payées</h3>
+                          <span className="px-3 py-1 bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 text-sm font-bold rounded-full">
+                            {formatCurrency(
+                              sortedSuppliers
+                                .filter(e => selectedSupplierFilter === '' || e.id === selectedSupplierFilter)
+                                .reduce((total, supplier) => {
+                                  return total + filteredTransactions
+                                    .filter(t => t.entityId === supplier.id && t.type === 'FACTURE' && t.paid)
+                                    .reduce((sum, t) => sum + t.amount, 0);
+                                }, 0)
+                            )}
+                          </span>
+                        </div>
                       </div>
                       {selectedInvoices.length > 0 && (
                         <button
